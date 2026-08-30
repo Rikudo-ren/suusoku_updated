@@ -8,8 +8,29 @@
   --color-mag-neon: #ff2bd1;
 }
 
+/* This is a game, not a document -- nothing here needs to be
+   text-selectable. On phones, holding a finger down slightly too long on
+   any bit of text (the big problem number, a HUD label, anywhere) triggers
+   the OS's native text-selection/callout gesture. While that gesture is
+   active, iOS/Android intercept touch input for the rest of the page until
+   it's released or dismissed, which is why pressing/holding somewhere on
+   screen could make the on-screen ENTER button (or anything else) stop
+   responding, and likely explains some of the general dropped-tap reports
+   during fast play too. Disabling selection/callout globally removes that
+   failure mode entirely. `input`/`textarea` are explicitly exempted below
+   so the desktop answer field keeps normal caret/typing behavior. */
 * {
   -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+input,
+textarea {
+  -webkit-touch-callout: default;
+  -webkit-user-select: auto;
+  user-select: auto;
 }
 
 html,
