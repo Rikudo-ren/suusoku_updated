@@ -432,7 +432,8 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
             <div className="flex flex-wrap items-center gap-2">
               {/* Mobile pause button: ESC (below) has no touch equivalent, so
                   this gives phone players a reachable, always-visible way to
-                  pause. Placed at the top, away from the number pad. */}
+                  pause. Placed at the top, away from the number pad. Icon is
+                  drawn with CSS bars (not an emoji) to match the HUD style. */}
               {phase === "play" && !paused && !resuming && (
                 <button
                   onClick={() => {
@@ -443,7 +444,11 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
                   title="ポーズ"
                   className="clip-chip inline-flex items-center gap-1.5 border border-white/25 bg-black/50 px-3 py-1 font-display text-xs font-black tracking-[0.2em] text-white/80 active:bg-white/15 md:hidden"
                 >
-                  <span aria-hidden="true">⏸</span> PAUSE
+                  <span className="flex items-center gap-[3px]" aria-hidden="true">
+                    <span className="h-3 w-[3px] bg-current" />
+                    <span className="h-3 w-[3px] bg-current" />
+                  </span>
+                  PAUSE
                 </button>
               )}
               <div
@@ -644,16 +649,48 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
             </span>
           </div>
 
-          <div className="mt-3 grid grid-cols-6 gap-1.5 md:hidden">
-            {["1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "DEL", "ENT"].map((k) => (
+          {/* Numeric keypad: two rows of 1-5 / 6-0 (natural left-to-right
+              reading order), with DEL/ENTER as a full-width row underneath
+              so they're not squeezed into a 6th column. Buttons use
+              onPointerDown (not onClick) plus touch-action: manipulation so
+              rapid repeated taps register immediately instead of waiting
+              out the browser's double-tap/ghost-click delay. */}
+          <div className="mt-3 grid grid-cols-5 gap-1.5 md:hidden">
+            {["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"].map((k) => (
               <button
                 key={k}
-                onClick={() => pressKey(k)}
-                className="clip-chip border border-cyan-400/30 bg-white/5 py-3 font-display text-lg font-black text-cyan-100 active:bg-cyan-400/30"
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  pressKey(k);
+                }}
+                style={{ touchAction: "manipulation" }}
+                className="clip-chip select-none border border-cyan-400/30 bg-white/5 py-3 font-display text-lg font-black text-cyan-100 active:bg-cyan-400/30"
               >
-                {k === "DEL" ? "⌫" : k === "ENT" ? "⏎" : k}
+                {k}
               </button>
             ))}
+          </div>
+          <div className="mt-1.5 grid grid-cols-2 gap-1.5 md:hidden">
+            <button
+              onPointerDown={(e) => {
+                e.preventDefault();
+                pressKey("DEL");
+              }}
+              style={{ touchAction: "manipulation" }}
+              className="clip-chip select-none border border-white/25 bg-white/5 py-3 font-display text-lg font-black text-white/75 active:bg-white/20"
+            >
+              ⌫ 削除
+            </button>
+            <button
+              onPointerDown={(e) => {
+                e.preventDefault();
+                pressKey("ENT");
+              }}
+              style={{ touchAction: "manipulation", background: di.color, boxShadow: `0 0 20px ${di.color}` }}
+              className="clip-chip select-none py-3 font-display text-lg font-black text-black active:brightness-90"
+            >
+              ⏎ ENTER
+            </button>
           </div>
         </div>
       </div>
