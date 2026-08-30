@@ -144,9 +144,22 @@ export default function ResultScreen({
         </div>
       )}
 
-      <div className="relative z-10 flex h-full w-full items-center justify-center px-4 py-6">
+      {/* This used to be a fixed h-full flex box with no overflow-y-auto, so
+          on short mobile screens (or with a long breakdown/rank section) the
+          panel could overflow the viewport top/bottom with no way to reach
+          the clipped part -- e.g. the RETRY/TITLE/RANKING buttons at the
+          very bottom. overflow-y-auto below turns that into a normal
+          scrollable area whenever content is taller than the screen. */}
+      {/* justify-center (not items-center) on purpose: centering a
+          scrollable flex container with align-items/justify-content:
+          center is a known browser quirk where the overflowed start of
+          the content becomes unreachable by scrolling. The child's
+          `my-auto` below centers it vertically when it fits, and behaves
+          like a normal top-anchored, fully scrollable block when it
+          doesn't. */}
+      <div className="relative z-10 flex h-full w-full justify-center overflow-y-auto px-4 py-6">
         {stage >= 1 && (
-          <div className="wipe-in clip-panel relative w-full max-w-5xl border border-cyan-400/30 bg-black/60 px-5 py-6 backdrop-blur-md md:px-12 md:py-8">
+          <div className="wipe-in clip-panel relative my-auto w-full max-w-5xl border border-cyan-400/30 bg-black/60 px-5 py-6 backdrop-blur-md md:px-12 md:py-8">
             <div className="mb-4 flex items-center justify-between font-mono2 text-[10px] tracking-[0.35em] text-cyan-300/60">
               <span className="flex items-center gap-2">
                 MISSION REPORT //
