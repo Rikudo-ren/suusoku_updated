@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Backdrop from "./Backdrop";
 import {
   DIFF_INFO,
@@ -36,6 +36,57 @@ export type GameStats = {
 };
 
 const TOTAL_MS = 180_000;
+const PAD_KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"];
+
+// Split out and memoized so this whole 12-button block only re-renders when
+// its own props (accentColor) actually change -- not on every keystroke,
+// timer tick, or any other GameScreen state update. `onPress` must be a
+// referentially stable function (see `handlePress` in GameScreen) or this
+// memoization does nothing.
+const NumPad = memo(function NumPad({ onPress, accentColor }: { onPress: (k: string) => void; accentColor: string }) {
+  return (
+    <>
+      <div className="mt-3 grid grid-cols-5 gap-1.5 md:hidden">
+        {PAD_KEYS.map((k) => (
+          <button
+            key={k}
+            onPointerDown={() => onPress(k)}
+            style={{ touchAction: "manipulation" }}
+            className="clip-chip select-none border border-cyan-400/30 bg-white/5 py-3 font-display text-lg font-black text-cyan-100 active:bg-cyan-400/30"
+          >
+            {k}
+          </button>
+        ))}
+      </div>
+      <div className="mt-1.5 grid grid-cols-2 gap-1.5 md:hidden">
+        <button
+          onPointerDown={() => onPress("DEL")}
+          aria-label="削除"
+          title="削除"
+          style={{ touchAction: "manipulation" }}
+          className="clip-chip flex select-none items-center justify-center border border-white/25 bg-white/5 py-3 text-white/75 active:bg-white/20"
+        >
+          <svg width="22" height="16" viewBox="0 0 22 16" fill="none" aria-hidden="true">
+            <path
+              d="M7.2 1H20a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H7.2a1 1 0 0 1-.77-.36L1 8l5.43-6.64A1 1 0 0 1 7.2 1Z"
+              stroke="currentColor"
+              strokeWidth="1.6"
+              strokeLinejoin="round"
+            />
+            <path d="M11 5.5 16.5 11M16.5 5.5 11 11" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+          </svg>
+        </button>
+        <button
+          onPointerDown={() => onPress("ENT")}
+          style={{ touchAction: "manipulation", background: accentColor, boxShadow: `0 0 20px ${accentColor}` }}
+          className="clip-chip select-none py-3 font-display text-lg font-black text-black active:brightness-90"
+        >
+          ⏎ ENTER
+        </button>
+      </div>
+    </>
+  );
+});
 
 type Fx = { key: number; kind: "correct" | "error"; gain: number } | null;
 
@@ -55,7 +106,20 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
 
   const [phase, setPhase] = useState<"countdown" | "play">("countdown");
   const [count, setCount] = useState(3);
-  const [remain, setRemain] = useState(TOTAL_MS);
+  // `remain` used to be React state updated every animation frame (~60x/sec),
+  // which forced the ENTIRE screen (HUD, problem panel, on-screen keypad,
+  // Backdrop) to re-render 60 times a second. That constant re-render work
+  // competed with touch-event handling on the main thread and was the main
+  // cause of taps feeling dropped/late during fast play. Sub-second display
+  // (centiseconds + progress bar + the "critical" pulse) is now written
+  // directly to the DOM via refs inside the rAF loop below, bypassing React
+  // entirely. Only whole-second changes go through React state, since that's
+  // the coarsest granularity anything else on screen actually needs.
+  const remainRef = useRef(TOTAL_MS);
+  const [secondsLeft, setSecondsLeft] = useState(Math.ceil(TOTAL_MS / 1000));
+  const progressBarRef = useRef<HTMLDivElement>(null);
+  const csRef = useRef<HTMLSpanElement>(null);
+  const bigTimeRef = useRef<HTMLDivElement>(null);
 
   const [problem, setProblem] = useState<Problem>(() => generateProblem(difficulty, mode));
   const [input, setInput] = useState("");
@@ -98,7 +162,6 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
     return () => mq.removeEventListener("change", handler);
   }, []);
 
-  const secondsLeft = Math.max(0, Math.ceil(remain / 1000));
   const danger = secondsLeft <= 30;
   const critical = secondsLeft <= 10;
   const score = solved * di.points;
@@ -131,16 +194,27 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
   useEffect(() => {
     if (phase !== "play") return;
     if (paused || resuming) return;
-    if (bgmEnabled) setMusicMode(Math.ceil(remain / 1000) <= 30 ? "danger" : "battle");
-    endRef.current = performance.now() + remain;
+    if (bgmEnabled) setMusicMode(Math.ceil(remainRef.current / 1000) <= 30 ? "danger" : "battle");
+    endRef.current = performance.now() + remainRef.current;
     inputRef.current?.focus();
     let raf = 0;
     const loop = () => {
       const left = Math.max(0, endRef.current - performance.now());
-      setRemain(left);
+      remainRef.current = left;
+
+      // Sub-second visuals: written straight to the DOM, no setState, so
+      // this never triggers a React render.
+      if (progressBarRef.current) progressBarRef.current.style.width = `${(left / TOTAL_MS) * 100}%`;
+      if (csRef.current) csRef.current.textContent = `.${String(Math.floor((left % 1000) / 10)).padStart(2, "0")}`;
+      if (bigTimeRef.current) {
+        const pulse = left <= 10_000 && left % 1000 < 150;
+        bigTimeRef.current.style.transform = pulse ? "scale(1.06)" : "";
+      }
+
       const s = Math.ceil(left / 1000);
       if (s !== lastSecRef.current) {
         lastSecRef.current = s;
+        setSecondsLeft(s);
         if (s <= 10 && s > 0) sfxTick(s <= 3);
         if (s === 30 && !warnedRef.current) {
           warnedRef.current = true;
@@ -335,6 +409,17 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
     // input still shows the typed value without needing focus.
   };
 
+  // `pressKey` above is recreated every render (it closes over `input`,
+  // `factors`, `problem`, `paused`, `resuming`, ...), which is necessary for
+  // it to always act on the latest state. But that means its identity
+  // changes on every keystroke, which would defeat NumPad's memoization if
+  // passed directly. Routing through a ref keeps the prop we hand to NumPad
+  // permanently stable (`handlePress` never changes identity) while it still
+  // always calls the *current* pressKey underneath.
+  const pressKeyRef = useRef(pressKey);
+  pressKeyRef.current = pressKey;
+  const handlePress = useCallback((k: string) => pressKeyRef.current(k), []);
+
   /* ---------- resume with blur-clear countdown ---------- */
   const startResume = () => {
     if (resuming) return;
@@ -360,10 +445,8 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
   };
 
   const timeColor = danger ? "#ff3b5c" : "#22e4ff";
-  const pct = (remain / TOTAL_MS) * 100;
   const mm = Math.floor(secondsLeft / 60);
   const ss = secondsLeft % 60;
-  const cs = Math.floor((remain % 1000) / 10);
   const blurAmt = resuming ? Math.max(0, resumeCount) * 4 : paused ? 14 : 0;
   const saturation = resuming ? 1 - Math.max(0, resumeCount) * 0.14 : paused ? 0.4 : 1;
 
@@ -388,26 +471,36 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
           {fx.kind === "correct" ? (
             <>
               <div className="flash-fade absolute inset-0" style={{ background: "radial-gradient(circle at 50% 45%, rgba(34,228,255,0.35), transparent 60%)" }} />
-              <div className="ring-burst absolute h-64 w-64 rounded-full border-cyan-300" style={{ borderStyle: "solid" }} />
-              <div className="ring-burst absolute h-64 w-64 rounded-full border-fuchsia-400" style={{ borderStyle: "solid", animationDelay: "0.08s" }} />
-              {Array.from({ length: 14 }).map((_, i) => {
-                const a = (i / 14) * Math.PI * 2 + Math.random();
-                const d = 160 + Math.random() * 220;
-                return (
-                  <span
-                    key={i}
-                    className="spark absolute h-1.5 w-1.5 rounded-full"
-                    style={
-                      {
-                        background: i % 2 ? "#22e4ff" : "#ff2bd1",
-                        boxShadow: "0 0 12px currentColor",
-                        "--dx": `${Math.cos(a) * d}px`,
-                        "--dy": `${Math.sin(a) * d}px`,
-                      } as React.CSSProperties
-                    }
-                  />
-                );
-              })}
+              {/* Rings + sparks are the priciest part of this burst, and it
+                  fires on every single correct answer -- the single most
+                  frequent event in the game, and exactly when the player is
+                  typing fastest. Skip them in lightweight mode, and use
+                  fewer sparks even in normal mode (14 -> 8) to cut down on
+                  main-thread work competing with touch input. */}
+              {!lightweight && (
+                <>
+                  <div className="ring-burst absolute h-64 w-64 rounded-full border-cyan-300" style={{ borderStyle: "solid", borderWidth: "3px" }} />
+                  <div className="ring-burst absolute h-64 w-64 rounded-full border-fuchsia-400" style={{ borderStyle: "solid", borderWidth: "3px", animationDelay: "0.08s" }} />
+                  {Array.from({ length: 8 }).map((_, i) => {
+                    const a = (i / 8) * Math.PI * 2 + Math.random();
+                    const d = 160 + Math.random() * 220;
+                    return (
+                      <span
+                        key={i}
+                        className="spark absolute h-1.5 w-1.5 rounded-full"
+                        style={
+                          {
+                            background: i % 2 ? "#22e4ff" : "#ff2bd1",
+                            boxShadow: "0 0 12px currentColor",
+                            "--dx": `${Math.cos(a) * d}px`,
+                            "--dy": `${Math.sin(a) * d}px`,
+                          } as React.CSSProperties
+                        }
+                      />
+                    );
+                  })}
+                </>
+              )}
               <div className="pop-in font-display text-4xl font-black tracking-[0.3em] text-white neon md:text-6xl" style={{ animation: "float-up 0.75s ease-out forwards" }}>
                 CORRECT
               </div>
@@ -507,22 +600,23 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
               TIME REMAINING
             </div>
             <div
+              ref={bigTimeRef}
               className={`font-display text-5xl font-black leading-none tabular-nums transition-colors duration-300 md:text-7xl ${
                 critical ? "animate-pulse" : ""
               }`}
               style={{
                 color: timeColor,
                 textShadow: `0 0 12px ${timeColor}, 0 0 40px ${timeColor}88`,
-                transform: critical ? `scale(${1 + (remain % 1000 < 150 ? 0.06 : 0)})` : undefined,
               }}
             >
               {mm}:{String(ss).padStart(2, "0")}
-              <span className="text-2xl md:text-3xl">.{String(cs).padStart(2, "0")}</span>
+              <span ref={csRef} className="text-2xl md:text-3xl">.00</span>
             </div>
             <div className="mt-1 h-1.5 w-40 overflow-hidden bg-white/10 md:w-72">
               <div
+                ref={progressBarRef}
                 className="h-full transition-[width] duration-100"
-                style={{ width: `${pct}%`, background: `linear-gradient(90deg, ${timeColor}, #fff)`, boxShadow: `0 0 14px ${timeColor}` }}
+                style={{ width: "100%", background: `linear-gradient(90deg, ${timeColor}, #fff)`, boxShadow: `0 0 14px ${timeColor}` }}
               />
             </div>
           </div>
@@ -669,45 +763,10 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
               so they're not squeezed into a 6th column. Buttons use
               onPointerDown (not onClick) plus touch-action: manipulation so
               rapid repeated taps register immediately instead of waiting
-              out the browser's double-tap/ghost-click delay. */}
-          <div className="mt-3 grid grid-cols-5 gap-1.5 md:hidden">
-            {["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"].map((k) => (
-              <button
-                key={k}
-                onPointerDown={() => pressKey(k)}
-                style={{ touchAction: "manipulation" }}
-                className="clip-chip select-none border border-cyan-400/30 bg-white/5 py-3 font-display text-lg font-black text-cyan-100 active:bg-cyan-400/30"
-              >
-                {k}
-              </button>
-            ))}
-          </div>
-          <div className="mt-1.5 grid grid-cols-2 gap-1.5 md:hidden">
-            <button
-              onPointerDown={() => pressKey("DEL")}
-              aria-label="削除"
-              title="削除"
-              style={{ touchAction: "manipulation" }}
-              className="clip-chip flex select-none items-center justify-center border border-white/25 bg-white/5 py-3 text-white/75 active:bg-white/20"
-            >
-              <svg width="22" height="16" viewBox="0 0 22 16" fill="none" aria-hidden="true">
-                <path
-                  d="M7.2 1H20a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H7.2a1 1 0 0 1-.77-.36L1 8l5.43-6.64A1 1 0 0 1 7.2 1Z"
-                  stroke="currentColor"
-                  strokeWidth="1.6"
-                  strokeLinejoin="round"
-                />
-                <path d="M11 5.5 16.5 11M16.5 5.5 11 11" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-              </svg>
-            </button>
-            <button
-              onPointerDown={() => pressKey("ENT")}
-              style={{ touchAction: "manipulation", background: di.color, boxShadow: `0 0 20px ${di.color}` }}
-              className="clip-chip select-none py-3 font-display text-lg font-black text-black active:brightness-90"
-            >
-              ⏎ ENTER
-            </button>
-          </div>
+              out the browser's double-tap/ghost-click delay. Pulled out into
+              a memoized NumPad (see above) so this block doesn't re-render
+              on every keystroke/timer-tick. */}
+          <NumPad onPress={handlePress} accentColor={di.color} />
         </div>
       </div>
 
