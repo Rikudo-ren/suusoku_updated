@@ -328,7 +328,11 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
     }
     setInput((v) => (v.length < 9 ? v + k : v));
     sfxType();
-    inputRef.current?.focus();
+    // NOTE: previously called inputRef.current?.focus() here for a visible
+    // caret on mobile, but re-focusing a readOnly input on every keypad tap
+    // fights the browser's own focus/tap handling and was making rapid
+    // consecutive taps (especially digit -> ENTER) feel unresponsive. The
+    // input still shows the typed value without needing focus.
   };
 
   /* ---------- resume with blur-clear countdown ---------- */
@@ -364,7 +368,18 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
   const saturation = resuming ? 1 - Math.max(0, resumeCount) * 0.14 : paused ? 0.4 : 1;
 
   return (
-    <div className="relative h-full w-full overflow-hidden" onMouseDown={() => inputRef.current?.focus()}>
+    <div
+      className="relative h-full w-full overflow-hidden"
+      onMouseDown={() => {
+        // Only re-steal focus back to the input on desktop, where typing
+        // happens on the physical keyboard. On mobile this is unnecessary
+        // (the input is readOnly and driven by the on-screen keypad) and
+        // the synthetic mousedown that follows every tap was fighting the
+        // keypad buttons' own focus, making fast consecutive taps (e.g.
+        // digit -> ENTER) feel like they needed a pause in between.
+        if (isDesktop) inputRef.current?.focus();
+      }}
+    >
       <Backdrop accent={di.color} danger={danger} lightweight={lightweight} />
 
       {/* correct / error full-screen fx */}
@@ -659,10 +674,7 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
             {["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"].map((k) => (
               <button
                 key={k}
-                onPointerDown={(e) => {
-                  e.preventDefault();
-                  pressKey(k);
-                }}
+                onPointerDown={() => pressKey(k)}
                 style={{ touchAction: "manipulation" }}
                 className="clip-chip select-none border border-cyan-400/30 bg-white/5 py-3 font-display text-lg font-black text-cyan-100 active:bg-cyan-400/30"
               >
@@ -672,20 +684,24 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
           </div>
           <div className="mt-1.5 grid grid-cols-2 gap-1.5 md:hidden">
             <button
-              onPointerDown={(e) => {
-                e.preventDefault();
-                pressKey("DEL");
-              }}
+              onPointerDown={() => pressKey("DEL")}
+              aria-label="削除"
+              title="削除"
               style={{ touchAction: "manipulation" }}
-              className="clip-chip select-none border border-white/25 bg-white/5 py-3 font-display text-lg font-black text-white/75 active:bg-white/20"
+              className="clip-chip flex select-none items-center justify-center border border-white/25 bg-white/5 py-3 text-white/75 active:bg-white/20"
             >
-              ⌫ 削除
+              <svg width="22" height="16" viewBox="0 0 22 16" fill="none" aria-hidden="true">
+                <path
+                  d="M7.2 1H20a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H7.2a1 1 0 0 1-.77-.36L1 8l5.43-6.64A1 1 0 0 1 7.2 1Z"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                  strokeLinejoin="round"
+                />
+                <path d="M11 5.5 16.5 11M16.5 5.5 11 11" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+              </svg>
             </button>
             <button
-              onPointerDown={(e) => {
-                e.preventDefault();
-                pressKey("ENT");
-              }}
+              onPointerDown={() => pressKey("ENT")}
               style={{ touchAction: "manipulation", background: di.color, boxShadow: `0 0 20px ${di.color}` }}
               className="clip-chip select-none py-3 font-display text-lg font-black text-black active:brightness-90"
             >
