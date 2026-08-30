@@ -116,7 +116,7 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
   // entirely. Only whole-second changes go through React state, since that's
   // the coarsest granularity anything else on screen actually needs.
   const remainRef = useRef(TOTAL_MS);
-  const [secondsLeft, setSecondsLeft] = useState(Math.ceil(TOTAL_MS / 1000));
+  const [secondsLeft, setSecondsLeft] = useState(Math.floor(TOTAL_MS / 1000));
   const progressBarRef = useRef<HTMLDivElement>(null);
   const csRef = useRef<HTMLSpanElement>(null);
   const bigTimeRef = useRef<HTMLDivElement>(null);
@@ -216,7 +216,19 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
       // string/transform ~60x/sec was extra main-thread work competing
       // with touch handling during fast play, for no visible benefit.
       if (progressBarRef.current) progressBarRef.current.style.width = `${(left / TOTAL_MS) * 100}%`;
-      const cs = Math.floor((left % 1000) / 10);
+      // `s` (whole seconds) and `cs` (centiseconds) must be derived from the
+      // same Math.floor() of `left`, so they always agree with each other.
+      // The old code used Math.ceil for `s` but Math.floor for `cs`, which
+      // made the seconds digit hold its value for a full extra ~1000ms
+      // after the centiseconds had already rolled over -- e.g. the display
+      // sat on "0:01.00" for the entire final second and then snapped
+      // straight to "0:00.00" instead of counting through "0:00.99" ...
+      // "0:00.00" like the centiseconds actually did. The same mismatch is
+      // why the clock could read a whole second ahead of where it actually
+      // was right as play began.
+      const totalCs = Math.floor(left / 10);
+      const s = Math.floor(totalCs / 100);
+      const cs = totalCs % 100;
       if (csRef.current && cs !== lastCsRef.current) {
         lastCsRef.current = cs;
         csRef.current.textContent = `.${String(cs).padStart(2, "0")}`;
@@ -229,7 +241,6 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
         }
       }
 
-      const s = Math.ceil(left / 1000);
       if (s !== lastSecRef.current) {
         lastSecRef.current = s;
         setSecondsLeft(s);
