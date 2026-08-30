@@ -139,6 +139,14 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
 
   const endRef = useRef(0);
   const lastSecRef = useRef(999);
+  // Track the last value actually written to the DOM for the sub-second
+  // bits (centiseconds text, critical-pulse transform) so the rAF loop can
+  // skip re-writing them when nothing changed, instead of touching the DOM
+  // unconditionally on every single frame (~60x/sec) regardless of whether
+  // the value differs from last frame.
+  const lastCsRef = useRef(-1);
+  const lastPulseRef = useRef(false);
+  const finishTimeoutRef = useRef<number | null>(null);
   const warnedRef = useRef(false);
   const doneRef = useRef(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -203,12 +211,22 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
       remainRef.current = left;
 
       // Sub-second visuals: written straight to the DOM, no setState, so
-      // this never triggers a React render.
+      // this never triggers a React render. Only touch the DOM when the
+      // value actually changed since last frame -- writing the identical
+      // string/transform ~60x/sec was extra main-thread work competing
+      // with touch handling during fast play, for no visible benefit.
       if (progressBarRef.current) progressBarRef.current.style.width = `${(left / TOTAL_MS) * 100}%`;
-      if (csRef.current) csRef.current.textContent = `.${String(Math.floor((left % 1000) / 10)).padStart(2, "0")}`;
+      const cs = Math.floor((left % 1000) / 10);
+      if (csRef.current && cs !== lastCsRef.current) {
+        lastCsRef.current = cs;
+        csRef.current.textContent = `.${String(cs).padStart(2, "0")}`;
+      }
       if (bigTimeRef.current) {
         const pulse = left <= 10_000 && left % 1000 < 150;
-        bigTimeRef.current.style.transform = pulse ? "scale(1.06)" : "";
+        if (pulse !== lastPulseRef.current) {
+          lastPulseRef.current = pulse;
+          bigTimeRef.current.style.transform = pulse ? "scale(1.06)" : "";
+        }
       }
 
       const s = Math.ceil(left / 1000);
@@ -224,13 +242,27 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
         }
       }
       if (left <= 0) {
-        finishRef.current();
+        // Don't call finish() in this same tick. finish() flips state in
+        // the parent that unmounts this whole screen, and since that
+        // happens synchronously right here, React was batching it together
+        // with this frame's setSecondsLeft(0) -- so the "0:00" frame never
+        // actually got painted; the clock visually froze on "0:01.00" and
+        // then jumped straight to the results screen. Force the true final
+        // frame (0:00.00, empty bar) onto the DOM directly, then give the
+        // browser a brief moment to actually show it before transitioning.
+        if (csRef.current) csRef.current.textContent = ".00";
+        if (progressBarRef.current) progressBarRef.current.style.width = "0%";
+        if (bigTimeRef.current) bigTimeRef.current.style.transform = "";
+        finishTimeoutRef.current = window.setTimeout(() => finishRef.current(), 260);
         return;
       }
       raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(raf);
+    return () => {
+      cancelAnimationFrame(raf);
+      if (finishTimeoutRef.current !== null) window.clearTimeout(finishTimeoutRef.current);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, paused, resuming, bgmEnabled]);
 
@@ -607,10 +639,26 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
               style={{
                 color: timeColor,
                 textShadow: `0 0 12px ${timeColor}, 0 0 40px ${timeColor}88`,
+                // Orbitron (loaded from Google Fonts) doesn't actually ship
+                // tabular/fixed-width digit glyphs, so the `tabular-nums`
+                // class above has no real effect on it -- a "1" stays
+                // visibly narrower than an "8". That made this element's
+                // own width flicker by a couple of px every time a digit
+                // changed, and because it sits in a `justify-between` HUD
+                // row next to SCORE/SOLVED, that flicker was also nudging
+                // those neighbours left-right. Pinning this box to a fixed
+                // width (generous enough for the widest possible
+                // "M:SS.CC") stops it from ever resizing, so nothing here
+                // or beside it can jitter, regardless of the font's actual
+                // glyph metrics.
+                width: "7.2ch",
+                textAlign: "center",
               }}
             >
               {mm}:{String(ss).padStart(2, "0")}
-              <span ref={csRef} className="text-2xl md:text-3xl">.00</span>
+              <span ref={csRef} className="text-2xl md:text-3xl" style={{ fontVariantNumeric: "tabular-nums" }}>
+                .00
+              </span>
             </div>
             <div className="mt-1 h-1.5 w-40 overflow-hidden bg-white/10 md:w-72">
               <div
@@ -645,9 +693,7 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
         <div className="flex min-h-0 flex-1 flex-col items-center justify-center overflow-hidden py-2">
           <div
             key={problem.id}
-            className={`slide-swap clip-panel relative w-full max-w-4xl border bg-black/55 px-5 py-6 backdrop-blur-md md:px-10 md:py-9 ${
-              fx?.kind === "error" ? "shake-x" : ""
-            }`}
+            className="slide-swap clip-panel relative w-full max-w-4xl border bg-black/55 px-5 py-6 backdrop-blur-md md:px-10 md:py-9"
             style={{
               borderColor: danger ? "rgba(255,59,92,0.5)" : `${di.accent}0.45)`,
               boxShadow: `0 0 60px ${danger ? "rgba(255,59,92,0.18)" : `${di.accent}0.16)`}, inset 0 0 60px rgba(0,0,0,0.6)`,
@@ -666,18 +712,36 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
               <span className="text-white/30">Q-{String(solved + 1).padStart(3, "0")}</span>
             </div>
 
-            {problem.kind === "factor" ? (
-              <div className="text-center">
-                <div className="font-display text-5xl font-black leading-none text-white neon md:text-7xl">
-                  {problem.target}
+            {/* Shake feedback lives on this inner wrapper now, not the
+                panel above. The panel has backdrop-blur-md + clip-path,
+                and animating `transform` on an element with
+                backdrop-filter forces the browser to keep re-sampling
+                whatever's behind it on every single frame of the
+                animation -- one of the more expensive things you can ask
+                a mobile GPU to do. That cost was landing right after every
+                wrong answer, competing with the very next tap, which is
+                why input could feel like it needed a beat to "wake up"
+                after a miss. Shaking this plain (non-blurred) inner block
+                instead keeps the same visual feedback for a fraction of
+                the cost. `key` forces the animation to restart even on
+                back-to-back misses -- otherwise re-applying the same
+                class name to an element that's already mid-animation is a
+                no-op, so a second quick miss would silently get no shake
+                at all. */}
+            <div key={fx?.kind === "error" ? fx.key : "idle"} className={fx?.kind === "error" ? "shake-x" : ""}>
+              {problem.kind === "factor" ? (
+                <div className="text-center">
+                  <div className="font-display text-5xl font-black leading-none text-white neon md:text-7xl">
+                    {problem.target}
+                  </div>
+                  <div className="mt-1 font-ui text-xs tracking-[0.2em] text-cyan-200/60">を素因数分解せよ</div>
                 </div>
-                <div className="mt-1 font-ui text-xs tracking-[0.2em] text-cyan-200/60">を素因数分解せよ</div>
-              </div>
-            ) : (
-              <div className="text-center font-display text-4xl font-black leading-none text-white neon md:text-7xl">
-                {problem.expr} <span className="text-cyan-300/70">=</span> <span className="caret text-cyan-300">?</span>
-              </div>
-            )}
+              ) : (
+                <div className="text-center font-display text-4xl font-black leading-none text-white neon md:text-7xl">
+                  {problem.expr} <span className="text-cyan-300/70">=</span> <span className="caret text-cyan-300">?</span>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
