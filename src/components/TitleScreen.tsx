@@ -188,15 +188,15 @@ export default function TitleScreen({ onStart, onRanking, best, audioReady, ligh
           </span>
         </div>
 
-        <div className="relative mb-1 select-none text-center">
+        <div className="relative mb-1 flex select-none flex-col items-center gap-1 text-center">
           <div className="font-mono2 text-[11px] tracking-[0.55em] text-cyan-300/70 md:text-xs">SOLO // TIME ATTACK</div>
           <h1
-            className="glitch flicker mt-1 font-display text-[15vw] font-black leading-none tracking-tight text-white neon md:text-[100px]"
+            className="glitch flicker title-logo font-display font-black tracking-tight text-white neon"
             data-text="数速バトル"
           >
             数速バトル
           </h1>
-          <div className="mt-1 flex items-center justify-center gap-3">
+          <div className="flex items-center justify-center gap-3">
             <span className="h-px w-10 bg-cyan-400/60 md:w-20" />
             <span className="font-display text-[10px] font-semibold tracking-[0.42em] text-cyan-200/90 md:text-sm">
               NUMERIC&nbsp;VELOCITY
