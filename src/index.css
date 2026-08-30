@@ -179,8 +179,13 @@ body {
 .slide-swap { animation: slide-swap 0.24s cubic-bezier(0.16, 1, 0.3, 1) both; }
 
 @keyframes ring-burst {
-  0% { transform: scale(0.25); opacity: 0.95; border-width: 8px; }
-  100% { transform: scale(2.6); opacity: 0; border-width: 1px; }
+  /* transform/opacity only -- these composite on the GPU. The old version
+     also animated border-width, which forces a layout + repaint on every
+     single frame of the animation (it fired on every correct answer, i.e.
+     constantly during fast play) and was a real contributor to dropped
+     touch input on mobile. border-width is now fixed via inline style. */
+  0% { transform: scale(0.25); opacity: 0.95; }
+  100% { transform: scale(2.6); opacity: 0; }
 }
 .ring-burst { animation: ring-burst 0.6s ease-out forwards; }
 
