@@ -136,6 +136,23 @@ body {
   99% { opacity: 0.45; }
 }
 
+/* ---------- title lockup ---------- */
+/* Fixed, viewport-independent sizing so the logotype never overlaps or gets
+   crushed on narrow phone screens. clamp() replaces the old raw vw units,
+   which scaled the glyphs faster than their line-box on tall/narrow phones
+   and caused overlap with the eyebrow/divider lines above and below. */
+.title-logo {
+  font-size: clamp(2.5rem, 12vw, 100px);
+  line-height: 1.15;
+  white-space: nowrap;
+}
+.glitch::before,
+.glitch::after {
+  font: inherit;
+  letter-spacing: inherit;
+  white-space: inherit;
+}
+
 /* ---------- clip shapes ---------- */
 .clip-panel {
   clip-path: polygon(0 14px, 14px 0, calc(100% - 26px) 0, 100% 26px, 100% calc(100% - 14px),
