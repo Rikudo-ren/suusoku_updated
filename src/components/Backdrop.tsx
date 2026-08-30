@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { memo, useMemo } from "react";
 
 type Props = {
   accent?: string;
@@ -42,7 +42,7 @@ function makeStream(seed: number, count: number) {
   });
 }
 
-export default function Backdrop({ accent = "#22e4ff", danger = false, intensity = 1, lightweight = false }: Props) {
+function Backdrop({ accent = "#22e4ff", danger = false, intensity = 1, lightweight = false }: Props) {
   const col = danger ? "#ff2d55" : accent;
   const left = useMemo(() => makeStream(11, lightweight ? 5 : 18), [lightweight]);
   const center = useMemo(() => makeStream(29, lightweight ? 7 : 22), [lightweight]);
@@ -171,3 +171,12 @@ export default function Backdrop({ accent = "#22e4ff", danger = false, intensity
     </div>
   );
 }
+
+// Backdrop renders ~40-60 animated glyph spans. It only truly needs to
+// change when accent/danger/lightweight actually change (a few times per
+// game at most). Without memo, it was re-rendering and re-diffing all of
+// those elements every time GameScreen re-rendered for any reason (e.g. the
+// old 60fps timer tick), which added avoidable main-thread work right when
+// the player is tapping fast. React.memo skips that work whenever the props
+// are unchanged.
+export default memo(Backdrop);
