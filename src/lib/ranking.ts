@@ -1,4 +1,5 @@
 import {
+  child,
   get,
   onValue,
   orderByChild,
@@ -156,6 +157,14 @@ export async function initPlayerIdentity(): Promise<string> {
  * updates that single entry instead of flooding the board with duplicates.
  * A transaction on that entry only overwrites it when the new score beats
  * the stored one, so the board always reflects each player's personal best.
+ *
+ * Boards created before this scheme existed may still contain old
+ * push-id-keyed duplicates for this same player (from when every run made a
+ * new entry). Each time this player submits a score, we take the chance to
+ * fold any of THEIR OWN leftover duplicates into the single uid-keyed entry
+ * (keeping whichever score is highest) and remove the leftovers. This only
+ * ever touches entries whose `uid` field is this player's own, so it can
+ * never affect anyone else's ranking entry.
  */
 export async function submitScore(
   mode: ProblemMode,
@@ -164,11 +173,32 @@ export async function submitScore(
 ): Promise<void> {
   if (!entry.score || entry.score <= 0) return;
   const uid = await ensureAuthUid();
-  const entryRef = ref(db, `${boardPath(mode, difficulty)}/${uid}`);
+  const listRef = ref(db, boardPath(mode, difficulty));
+  const entryRef = child(listRef, uid);
+  const runScore = Math.max(0, Math.floor(entry.score));
+
+  // Find any leftover legacy duplicates that belong to this player (key !==
+  // uid, but the uid field inside matches) and fold them into `runScore`.
+  let bestKnown = runScore;
+  const staleKeys: string[] = [];
+  try {
+    const snap = await get(listRef);
+    snap.forEach((c) => {
+      if (c.key === uid) return;
+      const v = c.val();
+      if (v && v.uid === uid) {
+        staleKeys.push(c.key as string);
+        if (typeof v.score === "number" && v.score > bestKnown) bestKnown = v.score;
+      }
+    });
+  } catch {
+    /* best effort -- if this read fails we still submit the run's own score below */
+  }
+
   const candidate = {
     uid,
     name: loadPlayerName().slice(0, 12) || "GUEST",
-    score: Math.max(0, Math.floor(entry.score)),
+    score: bestKnown,
     solved: Math.max(0, Math.floor(entry.solved)),
     misses: Math.max(0, Math.floor(entry.misses)),
     maxCombo: Math.max(0, Math.floor(entry.maxCombo)),
@@ -180,6 +210,14 @@ export async function submitScore(
     }
     return; // existing best is >= this run -- leave it untouched (abort the write)
   });
+
+  if (staleKeys.length) {
+    const updates: Record<string, null> = {};
+    for (const key of staleKeys) updates[key] = null;
+    await update(listRef, updates).catch(() => {
+      /* best effort cleanup; leftover duplicates will be retried next submit */
+    });
+  }
 }
 
 /* ---------------- shared live name lookup (uid -> current name) ---------------- */
