@@ -430,6 +430,22 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
         <div className="flex items-start justify-between gap-3">
           <div className="flex flex-col gap-2">
             <div className="flex flex-wrap items-center gap-2">
+              {/* Mobile pause button: ESC (below) has no touch equivalent, so
+                  this gives phone players a reachable, always-visible way to
+                  pause. Placed at the top, away from the number pad. */}
+              {phase === "play" && !paused && !resuming && (
+                <button
+                  onClick={() => {
+                    sfxSelect();
+                    setPaused(true);
+                  }}
+                  aria-label="ポーズ"
+                  title="ポーズ"
+                  className="clip-chip inline-flex items-center gap-1.5 border border-white/25 bg-black/50 px-3 py-1 font-display text-xs font-black tracking-[0.2em] text-white/80 active:bg-white/15 md:hidden"
+                >
+                  <span aria-hidden="true">⏸</span> PAUSE
+                </button>
+              )}
               <div
                 className="clip-chip inline-flex items-center gap-2 px-3 py-1"
                 style={{ background: `${di.accent}0.14)`, border: `1px solid ${di.color}66` }}
@@ -508,8 +524,11 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
           </div>
         </div>
 
-        {/* PROBLEM */}
-        <div className="flex flex-1 flex-col items-center justify-center">
+        {/* PROBLEM -- flex-1 + min-h-0 so this area (and only this area)
+            grows/shrinks with available space. The answer area below
+            (input + number pad) sits outside this flex-1 block, so its
+            on-screen position never depends on the problem box's height. */}
+        <div className="flex min-h-0 flex-1 flex-col items-center justify-center overflow-hidden py-2">
           <div
             key={problem.id}
             className={`slide-swap clip-panel relative w-full max-w-4xl border bg-black/55 px-5 py-6 backdrop-blur-md md:px-10 md:py-9 ${
@@ -546,90 +565,95 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
               </div>
             )}
           </div>
+        </div>
 
-          {/* ANSWER AREA */}
-          <div className="mt-5 w-full max-w-4xl">
-            {problem.kind === "factor" && (
-              <div className="mb-3 flex flex-wrap items-center justify-center gap-2">
-                {factors.length === 0 && (
-                  <span className="font-mono2 text-xs tracking-widest text-white/30">素数を1つずつ ENTER で追加</span>
-                )}
-                {factors.map((f, i) => (
-                  <span key={`${f}-${i}`} className="flex items-center gap-2">
-                    {i > 0 && <span className="font-display text-lg text-cyan-300/60">×</span>}
-                    <span
-                      className="pop-in clip-chip px-3 py-1 font-display text-xl font-black text-white md:text-2xl"
-                      style={{ background: "rgba(34,228,255,0.16)", border: "1px solid rgba(34,228,255,0.6)", boxShadow: "0 0 18px rgba(34,228,255,0.3)" }}
-                    >
-                      {f}
-                    </span>
+        {/* ANSWER AREA -- fixed-height footer block, outside the flex-1
+            problem area above, so the number pad's position stays put
+            regardless of problem-box size (single-line expr vs factor
+            mode vs a long factor chip row). */}
+        <div className="mx-auto w-full max-w-4xl shrink-0 pt-3 md:pt-5">
+          {problem.kind === "factor" && (
+            <div className="mb-3 flex flex-wrap items-center justify-center gap-2">
+              {factors.length === 0 && (
+                <span className="font-mono2 text-xs tracking-widest text-white/30">素数を1つずつ ENTER で追加</span>
+              )}
+              {factors.map((f, i) => (
+                <span key={`${f}-${i}`} className="flex items-center gap-2">
+                  {i > 0 && <span className="font-display text-lg text-cyan-300/60">×</span>}
+                  <span
+                    className="pop-in clip-chip px-3 py-1 font-display text-xl font-black text-white md:text-2xl"
+                    style={{ background: "rgba(34,228,255,0.16)", border: "1px solid rgba(34,228,255,0.6)", boxShadow: "0 0 18px rgba(34,228,255,0.3)" }}
+                  >
+                    {f}
                   </span>
-                ))}
-                {factors.length > 0 && (
-                  <span className="ml-2 font-mono2 text-sm tracking-wider text-cyan-200/80">
-                    = <span className="font-display text-xl font-black text-cyan-300">{product}</span>
-                    <span className="ml-2 text-white/35">/ {problem.target}</span>
-                  </span>
-                )}
-              </div>
-            )}
-
-            <div
-              className="clip-btn relative flex items-center gap-3 border bg-black/60 px-4 py-3 backdrop-blur"
-              style={{ borderColor: `${di.accent}0.6)`, boxShadow: `0 0 26px ${di.accent}0.22) inset` }}
-            >
-              <span className="font-mono2 text-sm text-cyan-400/80">{">"}</span>
-              <input
-                ref={inputRef}
-                value={input}
-                inputMode="numeric"
-                autoFocus
-                readOnly={!isDesktop}
-                spellCheck={false}
-                onChange={(e) => {
-                  if (paused || resuming) return;
-                  const v = e.target.value.replace(/[^0-9]/g, "").slice(0, 9);
-                  if (v.length > input.length) sfxType();
-                  setInput(v);
-                }}
-                onKeyDown={onKeyDown}
-                className="w-full bg-transparent font-display text-3xl font-black tracking-widest text-white placeholder-white/20 md:text-4xl"
-                placeholder={problem.kind === "factor" ? "素数を入力" : "答えを入力"}
-              />
-              <button
-                onClick={submit}
-                className="clip-chip shrink-0 px-4 py-2 font-display text-sm font-black tracking-[0.2em] text-black"
-                style={{ background: di.color, boxShadow: `0 0 20px ${di.color}` }}
-              >
-                ENTER
-              </button>
-            </div>
-
-            <div className="mt-2 flex min-h-[22px] items-center justify-between gap-3">
-              <span
-                className={`font-ui text-[13px] tracking-wide ${msg?.tone === "warn" ? "text-rose-400 neon-red" : "text-cyan-200/60"}`}
-              >
-                {msg?.text ??
-                  (problem.kind === "factor"
-                    ? "空欄で BackSpace = 直前の数字を削除"
-                    : "ENTER で解答 / ESC でポーズ")}
-              </span>
-              <span className="hidden font-mono2 text-[10px] tracking-[0.25em] text-white/25 md:block">
-                MISS {misses} · MAX COMBO ×{maxCombo}
-              </span>
-            </div>
-
-            <div className="mt-3 grid grid-cols-6 gap-1.5 md:hidden">
-              {["1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "DEL", "ENT"].map((k) => (
-                <button
-                  key={k}
-                  onClick={() => pressKey(k)}
-                  className="clip-chip border border-cyan-400/30 bg-white/5 py-3 font-display text-lg font-black text-cyan-100 active:bg-cyan-400/30"
-                >
-                  {k === "DEL" ? "⌫" : k === "ENT" ? "⏎" : k}
-                </button>
+                </span>
               ))}
+              {factors.length > 0 && (
+                <span className="ml-2 font-mono2 text-sm tracking-wider text-cyan-200/80">
+                  = <span className="font-display text-xl font-black text-cyan-300">{product}</span>
+                  <span className="ml-2 text-white/35">/ {problem.target}</span>
+                </span>
+              )}
             </div>
+          )}
+
+          <div
+            className="clip-btn relative flex items-center gap-3 border bg-black/60 px-4 py-3 backdrop-blur"
+            style={{ borderColor: `${di.accent}0.6)`, boxShadow: `0 0 26px ${di.accent}0.22) inset` }}
+          >
+            <span className="font-mono2 text-sm text-cyan-400/80">{">"}</span>
+            <input
+              ref={inputRef}
+              value={input}
+              inputMode="numeric"
+              autoFocus
+              readOnly={!isDesktop}
+              spellCheck={false}
+              onChange={(e) => {
+                if (paused || resuming) return;
+                const v = e.target.value.replace(/[^0-9]/g, "").slice(0, 9);
+                if (v.length > input.length) sfxType();
+                setInput(v);
+              }}
+              onKeyDown={onKeyDown}
+              className="w-full bg-transparent font-display text-3xl font-black tracking-widest text-white placeholder-white/20 md:text-4xl"
+              placeholder={problem.kind === "factor" ? "素数を入力" : "答えを入力"}
+            />
+            <button
+              onClick={submit}
+              className="clip-chip shrink-0 px-4 py-2 font-display text-sm font-black tracking-[0.2em] text-black"
+              style={{ background: di.color, boxShadow: `0 0 20px ${di.color}` }}
+            >
+              ENTER
+            </button>
+          </div>
+
+          <div className="mt-2 flex min-h-[22px] items-center justify-between gap-3">
+            <span
+              className={`font-ui text-[13px] tracking-wide ${msg?.tone === "warn" ? "text-rose-400 neon-red" : "text-cyan-200/60"}`}
+            >
+              {msg?.text ??
+                (problem.kind === "factor"
+                  ? "空欄で BackSpace = 直前の数字を削除"
+                  : isDesktop
+                    ? "ENTER で解答 / ESC でポーズ"
+                    : "ENTER で解答 / 上部のボタンでポーズ")}
+            </span>
+            <span className="hidden font-mono2 text-[10px] tracking-[0.25em] text-white/25 md:block">
+              MISS {misses} · MAX COMBO ×{maxCombo}
+            </span>
+          </div>
+
+          <div className="mt-3 grid grid-cols-6 gap-1.5 md:hidden">
+            {["1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "DEL", "ENT"].map((k) => (
+              <button
+                key={k}
+                onClick={() => pressKey(k)}
+                className="clip-chip border border-cyan-400/30 bg-white/5 py-3 font-display text-lg font-black text-cyan-100 active:bg-cyan-400/30"
+              >
+                {k === "DEL" ? "⌫" : k === "ENT" ? "⏎" : k}
+              </button>
+            ))}
           </div>
         </div>
       </div>
