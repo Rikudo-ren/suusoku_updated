@@ -1,12 +1,10 @@
 import {
-  child,
   get,
   onValue,
   orderByChild,
-  push,
   query,
   ref,
-  remove,
+  runTransaction,
   serverTimestamp,
   update,
   type Unsubscribe,
@@ -150,6 +148,15 @@ export async function initPlayerIdentity(): Promise<string> {
 
 /* ---------------- submit ---------------- */
 
+/**
+ * Record a finished run on the mode/difficulty leaderboard.
+ *
+ * Each player has at most ONE entry per board, keyed by their uid (not a
+ * random push id) -- so replaying the same mode/difficulty over and over
+ * updates that single entry instead of flooding the board with duplicates.
+ * A transaction on that entry only overwrites it when the new score beats
+ * the stored one, so the board always reflects each player's personal best.
+ */
 export async function submitScore(
   mode: ProblemMode,
   difficulty: Difficulty,
@@ -157,8 +164,8 @@ export async function submitScore(
 ): Promise<void> {
   if (!entry.score || entry.score <= 0) return;
   const uid = await ensureAuthUid();
-  const listRef = ref(db, boardPath(mode, difficulty));
-  await push(listRef, {
+  const entryRef = ref(db, `${boardPath(mode, difficulty)}/${uid}`);
+  const candidate = {
     uid,
     name: loadPlayerName().slice(0, 12) || "GUEST",
     score: Math.max(0, Math.floor(entry.score)),
@@ -166,29 +173,13 @@ export async function submitScore(
     misses: Math.max(0, Math.floor(entry.misses)),
     maxCombo: Math.max(0, Math.floor(entry.maxCombo)),
     ts: serverTimestamp(),
+  };
+  await runTransaction(entryRef, (current) => {
+    if (!current || typeof current.score !== "number" || candidate.score > current.score) {
+      return candidate;
+    }
+    return; // existing best is >= this run -- leave it untouched (abort the write)
   });
-  prune(mode, difficulty).catch(() => {
-    /* best effort, never block the UI on this */
-  });
-}
-
-/* ---------------- prune (keep each board small) ---------------- */
-
-const MAX_ENTRIES = 100;
-const PRUNE_TRIGGER = 140;
-
-async function prune(mode: ProblemMode, difficulty: Difficulty) {
-  const listRef = ref(db, boardPath(mode, difficulty));
-  const snap = await get(query(listRef, orderByChild("score")));
-  const rows: { key: string; score: number }[] = [];
-  snap.forEach((c) => {
-    rows.push({ key: c.key as string, score: (c.val()?.score as number) ?? 0 });
-  });
-  if (rows.length <= PRUNE_TRIGGER) return;
-  // rows are ascending by score (Firebase orderByChild default) -> drop the lowest scorers
-  const dropCount = rows.length - MAX_ENTRIES;
-  const drops = rows.slice(0, dropCount);
-  await Promise.all(drops.map((r) => remove(child(listRef, r.key))));
 }
 
 /* ---------------- shared live name lookup (uid -> current name) ---------------- */
