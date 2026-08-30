@@ -274,7 +274,6 @@ export default function TitleScreen({ onStart, onRanking, best, audioReady, ligh
           >
             <span className="h-1.5 w-1.5 rotate-45" style={{ background: di.color }} />
             02 // 難易度を選択
-            <span className="ml-2 text-white/30">選択中の難易度も常に発光</span>
           </div>
           <div className="grid grid-cols-3 gap-2 md:gap-3">
             {DIFF_ORDER.map((d) => {
