@@ -307,14 +307,14 @@ export default function TitleScreen({ onStart, onRanking, best, audioReady, ligh
                   <div className="font-mono2 text-[9px] tracking-[0.25em]" style={{ color: dInfo.color, opacity: 0.82 }}>
                     {dInfo.sub}
                   </div>
-                  <div className="flex items-baseline gap-2">
+                  <div className="flex flex-col items-start gap-0.5 md:flex-row md:items-baseline md:gap-2">
                     <div
                       className="font-display text-lg font-black leading-none md:text-2xl"
                       style={{ color: selected ? "#fff" : dInfo.color, textShadow: selected ? `0 0 14px ${dInfo.color}` : "none" }}
                     >
                       {dInfo.label}
                     </div>
-                    <div className="font-display text-base font-black md:text-xl" style={{ color: dInfo.color }}>
+                    <div className="font-display text-base font-black leading-none md:text-xl" style={{ color: dInfo.color }}>
                       x{dInfo.points}
                     </div>
                   </div>
