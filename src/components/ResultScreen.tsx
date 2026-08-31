@@ -35,6 +35,7 @@ export default function ResultScreen({
   stats,
   isBest,
   lightweight,
+  ultra,
   onRetry,
   onTitle,
   onRanking,
@@ -42,6 +43,7 @@ export default function ResultScreen({
   stats: GameStats;
   isBest: boolean;
   lightweight: boolean;
+  ultra: boolean;
   onRetry: () => void;
   onTitle: () => void;
   onRanking: () => void;
@@ -115,7 +117,7 @@ export default function ResultScreen({
 
   return (
     <div className="relative h-full w-full overflow-hidden" onClick={() => stage < 5 && skip()}>
-      <Backdrop accent={rank.color} intensity={0.8} lightweight={lightweight} />
+      <Backdrop accent={rank.color} intensity={0.8} lightweight={lightweight} ultra={ultra} />
 
       {stage === 0 && (
         <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/85">
