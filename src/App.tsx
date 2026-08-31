@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Analytics } from "@vercel/analytics/react";
 import TitleScreen from "./components/TitleScreen";
 import GameScreen, { type GameStats } from "./components/GameScreen";
 import ResultScreen from "./components/ResultScreen";
@@ -194,6 +195,7 @@ export default function App() {
 
   return (
     <div className="relative h-full w-full select-none bg-[#03060d] text-white">
+      <Analytics />
       {screen === "title" && (
         <TitleScreen
           onStart={start}
