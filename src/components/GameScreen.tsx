@@ -96,12 +96,13 @@ type Props = {
   mode: ProblemMode;
   bgmEnabled: boolean;
   lightweight: boolean;
+  ultra: boolean;
   onFinish: (s: GameStats) => void;
   onTitle: () => void;
   onRetry: () => void;
 };
 
-export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, onFinish, onTitle, onRetry }: Props) {
+export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, ultra, onFinish, onTitle, onRetry }: Props) {
   const di = DIFF_INFO[difficulty];
   const mi = MODE_INFO[mode];
 
@@ -524,7 +525,7 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
         if (isDesktop) inputRef.current?.focus();
       }}
     >
-      <Backdrop accent={di.color} danger={danger} lightweight={lightweight} />
+      <Backdrop accent={di.color} danger={danger} lightweight={lightweight} ultra={ultra} />
 
       {/* correct / error full-screen fx */}
       {fx && (
