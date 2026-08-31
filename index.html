@@ -3,7 +3,59 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <!-- Google tag (gtag.js) -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-0JL2K4235R"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', 'G-0JL2K4235R');
+    </script>
+
     <title>数速バトル // NUMERIC VELOCITY</title>
+    <meta name="description" content="数速バトル(NUMERIC VELOCITY)は、瞬時の暗算力を競う無料のブラウザ計算ゲーム。難易度・モードを選んで計算スピードを鍛え、ランキングで全国のプレイヤーと競おう。" />
+    <meta name="keywords" content="数速バトル,計算ゲーム,暗算,計算力,脳トレ,無料ゲーム,ブラウザゲーム,NUMERIC VELOCITY" />
+    <link rel="canonical" href="https://suusokubattle.vercel.app/" />
+
+    <!-- Open Graph / SNSシェア用 -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="数速バトル" />
+    <meta property="og:title" content="数速バトル // NUMERIC VELOCITY" />
+    <meta property="og:description" content="瞬時の暗算力を競う無料のブラウザ計算ゲーム。難易度・モードを選んで計算スピードを鍛え、ランキングに挑戦しよう。" />
+    <meta property="og:url" content="https://suusokubattle.vercel.app/" />
+    <meta property="og:locale" content="ja_JP" />
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="数速バトル // NUMERIC VELOCITY" />
+    <meta name="twitter:description" content="瞬時の暗算力を競う無料のブラウザ計算ゲーム。難易度・モードを選んで計算スピードを鍛え、ランキングに挑戦しよう。" />
+
+    <!-- Google Search Console 所有権確認用（Search Consoleで発行されたコードに書き換えてください） -->
+    <!-- <meta name="google-site-verification" content="ここに取得したコードを貼り付け" /> -->
+
+    <!-- 構造化データ：このページがゲームであることをGoogleに明示 -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "Game",
+      "name": "数速バトル",
+      "alternateName": "NUMERIC VELOCITY",
+      "url": "https://suusokubattle.vercel.app/",
+      "description": "暗算・計算スピードを競う無料のブラウザ計算ゲーム。加減算・乗除算・素因数分解などの分野と難易度を選び、制限時間内にどれだけ多くの問題を解けるかを競う脳トレゲーム。",
+      "genre": ["Puzzle", "Educational", "Math"],
+      "applicationCategory": "Game",
+      "operatingSystem": "Any",
+      "inLanguage": "ja",
+      "isAccessibleForFree": true,
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "JPY"
+      }
+    }
+    </script>
+
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -13,6 +65,11 @@
   </head>
   <body>
     <div id="root"></div>
+    <noscript>
+      <p>
+        数速バトル(NUMERIC VELOCITY)は、暗算・計算スピードを競う無料のブラウザ計算ゲームです。加減算・乗除算・素因数分解のモードと難易度を選んで、頭の回転力を鍛えましょう。この体験にはJavaScriptが必要です。ブラウザの設定でJavaScriptを有効にしてください。
+      </p>
+    </noscript>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
