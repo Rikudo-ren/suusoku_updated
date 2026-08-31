@@ -69,6 +69,11 @@ export const MODE_ORDER: ProblemMode[] = ["random", "arith", "muldiv", "factor"]
 
 export const TITLE_DIFFS: Difficulty[] = ["easy", "normal", "hard"];
 
+// 1プレイあたりにポーズできる回数の上限。GameScreen（実際の制限とポーズ画面の
+// 残り回数表示）と TitleScreen（ミッションブリーフィングのルール説明）の
+// 両方から参照するため、共有定数としてここに置く。
+export const MAX_PAUSES = 3;
+
 const ri = (min: number, max: number) => Math.floor(Math.random() * (max - min + 1)) + min;
 const pick = <T,>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
 
