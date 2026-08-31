@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import Backdrop from "./Backdrop";
-import { DIFF_INFO, MODE_INFO, MODE_ORDER, TITLE_DIFFS, type Difficulty, type ProblemMode } from "../lib/problems";
+import { DIFF_INFO, MAX_PAUSES, MODE_INFO, MODE_ORDER, TITLE_DIFFS, type Difficulty, type ProblemMode } from "../lib/problems";
 import { sfxSelect, sfxStart, sfxUI } from "../lib/audio";
 import { claimName, loadPlayerName } from "../lib/ranking";
 
@@ -343,7 +343,10 @@ export default function TitleScreen({ onStart, onRanking, best, audioReady, ligh
             <p>制限時間 <span className="font-display font-bold text-cyan-300">3:00</span>。解けた数 x 難易度倍率 = SCORE</p>
             <p>分野は <span className="text-cyan-300">加減算 / 乗除算 / 素因数分解 / ランダム</span></p>
             <p>素因数分解は素数を1つずつ ENTER。空欄で BackSpace = 1つ削除</p>
-            <p><span className="text-cyan-300">ESC</span> でポーズ。30秒から赤表示、10秒からカウント音</p>
+            <p>
+              <span className="text-cyan-300">ESC</span> でポーズ（
+              <span className="text-cyan-300">{MAX_PAUSES}回</span>まで）。30秒から赤表示、10秒からカウント音
+            </p>
           </div>
         </div>
 
