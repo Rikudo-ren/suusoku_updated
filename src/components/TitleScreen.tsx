@@ -10,13 +10,14 @@ type Props = {
   best: Record<string, number>;
   audioReady: boolean;
   lightweight: boolean;
+  ultra: boolean;
   onEnableAudio: () => void;
 };
 
 const DIFF_ORDER = TITLE_DIFFS;
 const bestKey = (d: Difficulty, m: ProblemMode) => `${d}::${m}`;
 
-export default function TitleScreen({ onStart, onRanking, best, audioReady, lightweight, onEnableAudio }: Props) {
+export default function TitleScreen({ onStart, onRanking, best, audioReady, lightweight, ultra, onEnableAudio }: Props) {
   const [selMode, setSelMode] = useState<ProblemMode>("random");
   const [selDiff, setSelDiff] = useState<Difficulty>("normal");
   const [launching, setLaunching] = useState(false);
@@ -112,7 +113,7 @@ export default function TitleScreen({ onStart, onRanking, best, audioReady, ligh
 
   return (
     <div className="relative h-full w-full overflow-hidden">
-      <Backdrop accent={mi.color} lightweight={lightweight} />
+      <Backdrop accent={mi.color} lightweight={lightweight} ultra={ultra} />
 
       {launching && (
         <div className="pointer-events-none absolute inset-0 z-50 bg-white" style={{ animation: "flash-fade 0.6s ease-in forwards" }} />
