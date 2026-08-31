@@ -493,6 +493,30 @@ body {
 }
 .caret { animation: caret-blink 1s steps(1) infinite; }
 
+/* ---------- super lightweight ("ULTRA") mode ----------
+   One blanket kill-switch for every purely-decorative, GPU/CPU-heavy paint
+   effect in the app: glow (box/text-shadow), blur (filter/backdrop-filter),
+   and all CSS animations/transitions. Colors, borders, layout, and the clip-
+   path shapes are untouched, so the UI stays fully readable and usable --
+   just flat and static ("無機質"). Backdrop.tsx also short-circuits to a
+   single flat <div> in this mode, so combined with this the game renders
+   almost nothing but plain boxes and text.
+   `!important` is required: most of the effects above are set via inline
+   style={{...}} in the components (highest normal specificity), and an
+   `!important` rule in a stylesheet is the one thing that overrides an
+   inline style that itself has no !important. */
+.ultra-mode,
+.ultra-mode * {
+  animation: none !important;
+  transition: none !important;
+  box-shadow: none !important;
+  text-shadow: none !important;
+  filter: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  will-change: auto !important;
+}
+
 input[type="text"] {
   outline: none;
 }
