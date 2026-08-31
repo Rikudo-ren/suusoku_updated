@@ -546,6 +546,37 @@ body {
   content: none !important;
 }
 
+/* countdown-clear (the big 3-2-1-GO digit, used for both the pre-game
+   countdown and the pause/resume countdown) and slide-swap (the problem
+   panel, remounted via `key={problem.id}` every new question) are NOT like
+   the FX above -- React reliably remounts them via a changing `key` every
+   single time they need to reappear, so there's no risk of them getting
+   stuck on screen the way the un-keyed FX overlays could. That means the
+   0.001s-collapse trick above is the wrong tool for these two and actively
+   breaks them:
+   - countdown-clear's own 100% keyframe is opacity: 0 (by design, it
+     normally fades back out right before the *next* digit mounts a second
+     later). Collapsed to 1ms, the digit lands on that invisible frame and
+     stays there for virtually the whole second it's supposed to be on
+     screen -- the countdown was never actually visible.
+   - slide-swap's 0% keyframe starts the panel translated off to the side
+     and fully transparent. A freshly-mounted element paints that starting
+     frame before the (now 1ms) animation timeline can advance, so the new
+     problem panel flashes blank/offset for a frame before snapping into
+     place -- the "screen jump" between problems.
+   Turn animation off entirely for these two instead: with no keyframes
+   running, each renders directly in its plain final style (fully visible,
+   already in place) the instant it mounts -- correct, and also exactly
+   what flat/ultra mode wants anyway. */
+.ultra-mode .countdown-clear {
+  animation: none !important;
+  opacity: 1 !important;
+  transform: none !important;
+}
+.ultra-mode .slide-swap {
+  animation: none !important;
+}
+
 input[type="text"] {
   outline: none;
 }
