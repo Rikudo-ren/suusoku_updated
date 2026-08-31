@@ -5,6 +5,8 @@ type Props = {
   danger?: boolean;
   intensity?: number;
   lightweight?: boolean;
+  /** Super-lightweight mode: skip every decorative layer, flat color only. */
+  ultra?: boolean;
 };
 
 const GLYPHS = [
@@ -42,11 +44,20 @@ function makeStream(seed: number, count: number) {
   });
 }
 
-function Backdrop({ accent = "#22e4ff", danger = false, intensity = 1, lightweight = false }: Props) {
+function Backdrop({ accent = "#22e4ff", danger = false, intensity = 1, lightweight = false, ultra = false }: Props) {
   const col = danger ? "#ff2d55" : accent;
-  const left = useMemo(() => makeStream(11, lightweight ? 5 : 18), [lightweight]);
-  const center = useMemo(() => makeStream(29, lightweight ? 7 : 22), [lightweight]);
-  const right = useMemo(() => makeStream(57, lightweight ? 5 : 18), [lightweight]);
+  // In ultra mode we render nothing below, so skip building glyph arrays too.
+  const left = useMemo(() => (ultra ? [] : makeStream(11, lightweight ? 5 : 18)), [lightweight, ultra]);
+  const center = useMemo(() => (ultra ? [] : makeStream(29, lightweight ? 7 : 22)), [lightweight, ultra]);
+  const right = useMemo(() => (ultra ? [] : makeStream(57, lightweight ? 5 : 18)), [lightweight, ultra]);
+
+  // Super-lightweight ("無機質") mode: no glyphs, no gradients, no grid, no
+  // scanlines/vignette -- just the flat base color. This is the entire
+  // backdrop's DOM/paint/animation cost reduced to a single static <div>,
+  // for devices where even the reduced "lightweight" backdrop is too heavy.
+  if (ultra) {
+    return <div className="absolute inset-0" style={{ background: danger ? "#160308" : "#03060d" }} />;
+  }
 
   return (
     <div className="pointer-events-none absolute inset-0 overflow-hidden">
