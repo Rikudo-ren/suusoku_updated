@@ -504,10 +504,28 @@ body {
    `!important` is required: most of the effects above are set via inline
    style={{...}} in the components (highest normal specificity), and an
    `!important` rule in a stylesheet is the one thing that overrides an
-   inline style that itself has no !important. */
+   inline style that itself has no !important.
+
+   IMPORTANT: this used to be a flat `animation: none !important`, which
+   caused a real bug -- several one-shot FX in this app (the full-screen
+   "CORRECT" / miss flash in GameScreen chief among them) are never removed
+   from the DOM by JS at all; they rely entirely on their animation's
+   `forwards`/`both` fill-mode reaching its final (invisible) keyframe to
+   disappear, and are only re-triggered later by React remounting a fresh
+   copy (via a changing `key`). `animation: none` skips the animation
+   completely, so the element falls back to its un-animated default state --
+   which for these is fully opaque -- and then just sits there permanently,
+   which is exactly the "CORRECT stays on screen" bug. Collapsing the
+   duration to near-zero instead still runs the animation (so `forwards`/
+   `both` still lands on the real final frame -- invisible, as intended) but
+   finishes it well under a frame, so nothing is visibly animating. Looping
+   (`infinite`) animations are capped to a single pass the same way, so nothing
+   here can spin/pulse/flicker forever either. */
 .ultra-mode,
 .ultra-mode * {
-  animation: none !important;
+  animation-duration: 0.001s !important;
+  animation-delay: 0s !important;
+  animation-iteration-count: 1 !important;
   transition: none !important;
   box-shadow: none !important;
   text-shadow: none !important;
@@ -515,6 +533,17 @@ body {
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
   will-change: auto !important;
+}
+
+/* .glitch's ::before/::after duplicate the heading text in color, offset by
+   clip-path, and only ever look right while their own glitch-a/glitch-b
+   loop is actually animating (they have no forwards fill-mode, so once
+   capped to one pass above they'd otherwise settle on their un-animated
+   default -- fully opaque -- leaving a permanent doubled/ghosted title).
+   Simplest correct fix under ultra mode: just don't render them. */
+.ultra-mode .glitch::before,
+.ultra-mode .glitch::after {
+  content: none !important;
 }
 
 input[type="text"] {
