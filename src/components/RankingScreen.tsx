@@ -6,6 +6,7 @@ import { sfxSelect, sfxUI } from "../lib/audio";
 
 type Props = {
   lightweight: boolean;
+  ultra: boolean;
   initialMode?: ProblemMode;
   initialDifficulty?: Difficulty;
   onBack: () => void;
@@ -21,7 +22,7 @@ function fmtDate(ts: number) {
   return d.toLocaleString("ja-JP", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
 
-export default function RankingScreen({ lightweight, initialMode, initialDifficulty, onBack }: Props) {
+export default function RankingScreen({ lightweight, ultra, initialMode, initialDifficulty, onBack }: Props) {
   const initialBoth = Boolean(initialMode && initialDifficulty);
   const [step, setStep] = useState<Step>(initialBoth ? "board" : "mode");
   const [selMode, setSelMode] = useState<ProblemMode | null>(initialMode ?? null);
@@ -111,7 +112,7 @@ export default function RankingScreen({ lightweight, initialMode, initialDifficu
 
   return (
     <div className="relative h-full w-full overflow-hidden">
-      <Backdrop accent={accent} intensity={0.75} lightweight={lightweight} />
+      <Backdrop accent={accent} intensity={0.75} lightweight={lightweight} ultra={ultra} />
 
       <div className="relative z-10 flex h-full w-full flex-col items-center overflow-y-auto px-4 py-5 md:px-8">
         <div className="flex w-full max-w-3xl items-center justify-between font-mono2 text-[10px] tracking-[0.3em] text-cyan-300/60">
