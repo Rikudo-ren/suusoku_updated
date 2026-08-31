@@ -112,16 +112,16 @@ export default function TitleScreen({ onStart, onRanking, best, audioReady, ligh
   };
 
   return (
-    <div className="relative h-full w-full overflow-hidden">
+    <div className="relative h-full w-full overflow-y-auto overflow-x-hidden overscroll-contain">
       <Backdrop accent={mi.color} lightweight={lightweight} ultra={ultra} />
 
       {launching && (
         <div className="pointer-events-none absolute inset-0 z-50 bg-white" style={{ animation: "flash-fade 0.6s ease-in forwards" }} />
       )}
 
-      <div className="relative z-10 flex h-full w-full flex-col items-center justify-center px-5 py-5">
+      <div className="relative z-10 flex min-h-full w-full flex-col items-center px-5 pb-8 pt-4 md:justify-center md:py-5">
         <div
-          className="absolute inset-x-0 top-0 flex items-center justify-between px-5 py-3 font-mono2 text-[10px] tracking-[0.3em] text-cyan-300/60"
+          className="static mb-3 flex w-full flex-wrap items-center justify-between gap-x-3 gap-y-1.5 py-1 font-mono2 text-[10px] tracking-[0.3em] text-cyan-300/60 md:absolute md:inset-x-0 md:top-0 md:mb-0 md:flex-nowrap md:px-5 md:py-3"
           onMouseDown={(e) => e.stopPropagation()}
           onPointerDown={(e) => e.stopPropagation()}
         >
@@ -218,7 +218,7 @@ export default function TitleScreen({ onStart, onRanking, best, audioReady, ligh
             01 // 分野を選択
             <span className="ml-2 text-white/30">クリックした枠が選択中</span>
           </div>
-          <div className="grid grid-cols-4 gap-2">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             {MODE_ORDER.map((m) => {
               const mInfo = MODE_INFO[m];
               const selected = selMode === m;
