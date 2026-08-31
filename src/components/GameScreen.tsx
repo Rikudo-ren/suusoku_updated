@@ -4,6 +4,7 @@ import {
   DIFF_INFO,
   generateProblem,
   isPrime,
+  MAX_PAUSES,
   MODE_INFO,
   type Difficulty,
   type Problem,
@@ -130,6 +131,9 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
   const [paused, setPaused] = useState(false);
   const [resuming, setResuming] = useState(false);
   const [resumeCount, setResumeCount] = useState(3);
+  // ポーズは1プレイにつき MAX_PAUSES 回まで。使い切ったら ESC / PAUSE ボタン
+  // どちらからの要求も無視し、代わりに警告メッセージを出す。
+  const [pausesLeft, setPausesLeft] = useState(MAX_PAUSES);
 
   const [solved, setSolved] = useState(0);
   const [combo, setCombo] = useState(0);
@@ -301,13 +305,26 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
   const finishRef = useRef(finish);
   finishRef.current = finish;
 
+  // ポーズ要求の唯一の入口。ESC キーとモバイルの PAUSE ボタン、両方からここを
+  // 通す。残り回数が 0 のときはポーズさせず、警告音とメッセージだけ出す。
+  const requestPause = () => {
+    if (paused || resuming || doneRef.current) return;
+    if (pausesLeft <= 0) {
+      sfxError();
+      setMsg({ text: `ポーズ回数の上限（${MAX_PAUSES}回）に達しました`, tone: "warn" });
+      return;
+    }
+    setPausesLeft((p) => p - 1);
+    setPaused(true);
+  };
+
   /* ---------- ESC: pause + pause shortcuts ---------- */
   useEffect(() => {
     if (phase !== "play") return;
     const h = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
-        if (!paused && !resuming && !doneRef.current) setPaused(true);
+        requestPause();
         return;
       }
       if (!paused) return;
@@ -328,7 +345,8 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
     };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
-  }, [phase, paused, resuming, onRetry, onTitle]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, paused, resuming, pausesLeft, onRetry, onTitle]);
 
   const triggerFx = (kind: "correct" | "error", gain = 0) => {
     fxKey.current += 1;
@@ -588,18 +606,21 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
               {phase === "play" && !paused && !resuming && (
                 <button
                   onClick={() => {
-                    sfxSelect();
-                    setPaused(true);
+                    if (pausesLeft > 0) sfxSelect();
+                    requestPause();
                   }}
                   aria-label="ポーズ"
-                  title="ポーズ"
-                  className="clip-chip inline-flex items-center gap-1.5 border border-white/25 bg-black/50 px-3 py-1 font-display text-xs font-black tracking-[0.2em] text-white/80 active:bg-white/15 md:hidden"
+                  title={`ポーズ（残り${pausesLeft}回）`}
+                  className={`clip-chip inline-flex items-center gap-1.5 border border-white/25 bg-black/50 px-3 py-1 font-display text-xs font-black tracking-[0.2em] text-white/80 active:bg-white/15 md:hidden ${
+                    pausesLeft <= 0 ? "opacity-40" : ""
+                  }`}
                 >
                   <span className="flex items-center gap-[3px]" aria-hidden="true">
                     <span className="h-3 w-[3px] bg-current" />
                     <span className="h-3 w-[3px] bg-current" />
                   </span>
                   PAUSE
+                  <span className="font-mono2 text-[9px] tracking-normal text-white/50">×{pausesLeft}</span>
                 </button>
               )}
               <div
@@ -866,6 +887,14 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
             </h2>
             <div className="mt-1 font-mono2 text-[10px] tracking-widest text-white/35">
               {di.label} × {mi.label} · SCORE {String(score).padStart(3, "0")} · {mm}:{String(ss).padStart(2, "0")}
+            </div>
+            <div
+              className={`mt-1 font-mono2 text-[10px] tracking-widest ${
+                pausesLeft <= 0 ? "text-rose-300/80" : "text-cyan-300/60"
+              }`}
+            >
+              ポーズ残り {pausesLeft} / {MAX_PAUSES}
+              {pausesLeft <= 0 && <span className="ml-1.5 text-rose-300/80">（次はできません）</span>}
             </div>
 
             <div className="mt-5 flex flex-col gap-2">
