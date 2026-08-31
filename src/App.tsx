@@ -17,7 +17,7 @@ import {
 } from "./lib/audio";
 
 type Screen = "title" | "game" | "result" | "ranking";
-type Prefs = { bgmOn: boolean; soundOn: boolean; lightweight: boolean };
+type Prefs = { bgmOn: boolean; soundOn: boolean; lightweight: boolean; ultra: boolean };
 
 const BEST_KEY = "numeric-velocity-best-v2";
 const PREF_KEY = "numeric-velocity-prefs-v1";
@@ -36,11 +36,11 @@ const loadBest = (): Record<string, number> => {
 const loadPrefs = (): Prefs => {
   try {
     const raw = localStorage.getItem(PREF_KEY);
-    if (raw) return { bgmOn: true, soundOn: true, lightweight: false, ...JSON.parse(raw) };
+    if (raw) return { bgmOn: true, soundOn: true, lightweight: false, ultra: false, ...JSON.parse(raw) };
   } catch {
     /* ignore */
   }
-  return { bgmOn: !isMusicMuted(), soundOn: !isSfxMuted(), lightweight: false };
+  return { bgmOn: !isMusicMuted(), soundOn: !isSfxMuted(), lightweight: false, ultra: false };
 };
 
 const savePrefs = (prefs: Prefs) => {
@@ -63,6 +63,7 @@ export default function App() {
   const [bgmOn, setBgmOn] = useState(prefs.bgmOn);
   const [soundOn, setSoundOn] = useState(prefs.soundOn);
   const [lightweight, setLightweight] = useState(prefs.lightweight);
+  const [ultra, setUltra] = useState(prefs.ultra);
   const [runKey, setRunKey] = useState(0);
   const [rankingFrom, setRankingFrom] = useState<{ d: Difficulty; m: ProblemMode } | null>(null);
   const enabled = useRef(false);
@@ -77,8 +78,8 @@ export default function App() {
   useEffect(() => {
     setMusicMuted(!bgmOn);
     setSfxMuted(!soundOn);
-    savePrefs({ bgmOn, soundOn, lightweight });
-  }, [bgmOn, soundOn, lightweight]);
+    savePrefs({ bgmOn, soundOn, lightweight, ultra });
+  }, [bgmOn, soundOn, lightweight, ultra]);
 
   const screenMusic = useCallback(() => {
     if (screen === "result") return "result" as const;
@@ -175,6 +176,7 @@ export default function App() {
   };
 
   const toggleLightweight = () => setLightweight((v) => !v);
+  const toggleUltra = () => setUltra((v) => !v);
 
   // On phones the on-screen number pad (GameScreen, md:hidden) sits at the
   // bottom of the screen; a fixed bottom-right settings bar there would sit
@@ -192,15 +194,21 @@ export default function App() {
   }, []);
   const showSettingsBar = isDesktopUI || screen !== "game";
 
+  // ULTRA implies every existing LITE-mode reduction too, so screens only
+  // need to check one boolean (`lightweight`) internally. `ultra` is passed
+  // through separately just for Backdrop, which goes fully flat under it.
+  const effectiveLightweight = lightweight || ultra;
+
   return (
-    <div className="relative h-full w-full select-none bg-[#03060d] text-white">
+    <div className={`relative h-full w-full select-none bg-[#03060d] text-white ${ultra ? "ultra-mode" : ""}`}>
       {screen === "title" && (
         <TitleScreen
           onStart={start}
           onRanking={() => toRanking()}
           best={best}
           audioReady={audioReady}
-          lightweight={lightweight}
+          lightweight={effectiveLightweight}
+          ultra={ultra}
           onEnableAudio={enableAudio}
         />
       )}
@@ -210,7 +218,8 @@ export default function App() {
           difficulty={difficulty}
           mode={mode}
           bgmEnabled={bgmOn}
-          lightweight={lightweight}
+          lightweight={effectiveLightweight}
+          ultra={ultra}
           onFinish={finish}
           onTitle={toTitle}
           onRetry={retry}
@@ -220,7 +229,8 @@ export default function App() {
         <ResultScreen
           stats={stats}
           isBest={isBest}
-          lightweight={lightweight}
+          lightweight={effectiveLightweight}
+          ultra={ultra}
           onRetry={retry}
           onTitle={toTitle}
           onRanking={() => toRanking(stats.difficulty, stats.mode)}
@@ -228,7 +238,8 @@ export default function App() {
       )}
       {screen === "ranking" && (
         <RankingScreen
-          lightweight={lightweight}
+          lightweight={effectiveLightweight}
+          ultra={ultra}
           initialDifficulty={rankingFrom?.d}
           initialMode={rankingFrom?.m}
           onBack={toTitle}
@@ -261,6 +272,13 @@ export default function App() {
           className="clip-chip border border-white/25 bg-black/65 px-3 py-2 font-mono2 text-[10px] tracking-[0.2em] text-white/70 backdrop-blur transition-colors hover:border-white/45 hover:text-white"
         >
           LITE {lightweight ? "ON" : "OFF"}
+        </button>
+        <button
+          onClick={toggleUltra}
+          title="スーパー軽量モード（演出をほぼ全カット）"
+          className="clip-chip border border-white/25 bg-black/65 px-3 py-2 font-mono2 text-[10px] tracking-[0.2em] text-white/70 backdrop-blur transition-colors hover:border-white/45 hover:text-white"
+        >
+          ULTRA {ultra ? "ON" : "OFF"}
         </button>
       </div>
     </div>
