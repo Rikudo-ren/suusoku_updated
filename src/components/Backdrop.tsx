@@ -56,11 +56,11 @@ function Backdrop({ accent = "#22e4ff", danger = false, intensity = 1, lightweig
   // backdrop's DOM/paint/animation cost reduced to a single static <div>,
   // for devices where even the reduced "lightweight" backdrop is too heavy.
   if (ultra) {
-    return <div className="absolute inset-0" style={{ background: danger ? "#160308" : "#03060d" }} />;
+    return <div className="fixed inset-0" style={{ background: danger ? "#160308" : "#03060d" }} />;
   }
 
   return (
-    <div className="pointer-events-none absolute inset-0 overflow-hidden">
+    <div className="pointer-events-none fixed inset-0 overflow-hidden">
       {/* deep gradient */}
       <div
         className="absolute inset-0 transition-colors duration-700"
