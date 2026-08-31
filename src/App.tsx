@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Analytics } from "@vercel/analytics/react";
 import TitleScreen from "./components/TitleScreen";
 import GameScreen, { type GameStats } from "./components/GameScreen";
 import ResultScreen from "./components/ResultScreen";
@@ -281,6 +282,7 @@ export default function App() {
           ULTRA {ultra ? "ON" : "OFF"}
         </button>
       </div>
+      <Analytics />
     </div>
   );
 }
