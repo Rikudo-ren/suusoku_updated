@@ -203,6 +203,9 @@ export default function TitleScreen({ onStart, onRanking, best, audioReady, ligh
             </span>
             <span className="h-px w-10 bg-cyan-400/60 md:w-20" />
           </div>
+          <p className="mt-1.5 max-w-md text-center font-ui text-[10.5px] leading-relaxed tracking-wide text-white/40 md:text-xs">
+            暗算・計算スピードを競う無料のブラウザ計算ゲーム。加減算から乗除算、素因数分解まで、頭の回転力を鍛える脳トレバトル。
+          </p>
         </div>
 
         <div className="mt-5 w-full max-w-3xl">
