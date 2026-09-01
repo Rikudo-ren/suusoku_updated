@@ -120,12 +120,18 @@ export default function ShareResultPanel({ stats, isBest, prevBest, bestDiff, ra
 
   const handleX = async () => {
     sfxUI();
-    openTweetIntent(buildTweetIntentUrl(shareStats, lang));
     if (!blob) {
+      openTweetIntent(buildTweetIntentUrl(shareStats, lang));
       showStatus(t("画像なしで投稿画面を開きました", "Opened the post composer without an image"));
       return;
     }
+    // Copy the image to the clipboard *before* opening the intent window.
+    // navigator.clipboard.write() requires the document to be focused, and
+    // window.open() (below) shifts focus to the new tab/window -- doing the
+    // copy first, while we're still inside the click's focused context,
+    // keeps the clipboard write from silently failing.
     const outcome = await copyImageAndText(blob, buildFullCaption(shareStats, lang), `suusoku-result-${lang}.png`);
+    openTweetIntent(buildTweetIntentUrl(shareStats, lang));
     if (outcome.kind === "copied-image-and-text") {
       showStatus(t("画像をコピーしました。投稿画面に貼り付け(Ctrl+V)してください", "Image copied — paste it (Ctrl+V) into the post"));
     } else {
