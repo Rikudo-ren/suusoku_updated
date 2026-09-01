@@ -331,6 +331,34 @@ body {
 }
 .countdown-halo { animation: countdown-halo 0.96s ease-out both; }
 
+/* ---------- NEW RECORD celebration (result screen) ---------- */
+@keyframes record-glow-pulse {
+  0%, 100% { filter: brightness(1) drop-shadow(0 0 10px rgba(255, 228, 94, 0.6)); }
+  50% { filter: brightness(1.35) drop-shadow(0 0 26px rgba(255, 228, 94, 0.95)); }
+}
+.record-glow-pulse { animation: record-glow-pulse 1.1s ease-in-out infinite; }
+
+@keyframes record-pop {
+  0% { transform: scale(0.4) rotate(-8deg); opacity: 0; }
+  55% { transform: scale(1.15) rotate(2deg); opacity: 1; }
+  75% { transform: scale(0.95) rotate(-1deg); }
+  100% { transform: scale(1) rotate(0deg); }
+}
+.record-pop { animation: record-pop 0.55s cubic-bezier(0.16, 1, 0.3, 1) both; }
+
+@keyframes record-shine {
+  0% { transform: translateX(-160%) skewX(-20deg); }
+  100% { transform: translateX(340%) skewX(-20deg); }
+}
+.record-shine { animation: record-shine 1.7s ease-in-out infinite; }
+
+@keyframes record-flash {
+  0% { opacity: 0; }
+  15% { opacity: 0.9; }
+  100% { opacity: 0; }
+}
+.record-flash { animation: record-flash 0.8s ease-out forwards; }
+
 /* ---------- EXTREME & SINGULARITY UNLOCK ENHANCED FX ---------- */
 @keyframes crack-pulse {
   0%, 100% { filter: brightness(1) drop-shadow(0 0 16px rgba(255,59,92,0.65)); }
