@@ -58,6 +58,7 @@ export default function App() {
   const [mode, setMode] = useState<ProblemMode>("random");
   const [stats, setStats] = useState<GameStats | null>(null);
   const [isBest, setIsBest] = useState(false);
+  const [prevBest, setPrevBest] = useState(0);
   const [best, setBest] = useState<Record<string, number>>(loadBest);
   const [audioReady, setAudioReady] = useState(false);
   const [bgmOn, setBgmOn] = useState(prefs.bgmOn);
@@ -117,6 +118,7 @@ export default function App() {
   const finish = (s: GameStats) => {
     setStats(s);
     const prev = best[bestKey(s.difficulty, s.mode)] ?? 0;
+    setPrevBest(prev);
     if (s.score > prev) {
       const nb = { ...best, [bestKey(s.difficulty, s.mode)]: s.score };
       setBest(nb);
@@ -224,6 +226,7 @@ export default function App() {
         <ResultScreen
           stats={stats}
           isBest={isBest}
+          prevBest={prevBest}
           lightweight={effectiveLightweight}
           ultra={ultra}
           onRetry={retry}
