@@ -251,6 +251,30 @@ export function sfxRank() {
   noise(1.2, 0.16, "highpass", 900);
 }
 
+export function sfxNewRecord() {
+  initAudio();
+  // Rising major-key fanfare, two octaves, brighter and busier than
+  // sfxRank -- reserved for an actual personal-best update.
+  [0, 4, 7, 12, 16, 19, 24].forEach((s, i) => {
+    const f = 261.63 * Math.pow(2, s / 12); // C4 root
+    tone({ freq: f, dur: 0.5, gain: 0.17, type: "square", when: i * 0.06, filter: 5200 });
+    tone({ freq: f * 2, dur: 0.34, gain: 0.07, type: "triangle", when: i * 0.06 });
+  });
+  // Bright sparkle shimmer scattered on top
+  for (let i = 0; i < 10; i++) {
+    tone({
+      freq: 2000 + Math.random() * 2400,
+      dur: 0.12 + Math.random() * 0.1,
+      gain: 0.05,
+      type: "sine",
+      when: 0.15 + i * 0.045,
+    });
+  }
+  // Deep triumphant sub hit under everything
+  tone({ freq: 80, dur: 1.1, gain: 0.34, type: "sine", glideTo: 46 });
+  noise(0.9, 0.14, "highpass", 3800);
+}
+
 export function sfxCrack(level = 1, singularity = false) {
   initAudio();
   const n = Math.min(level, 6);
