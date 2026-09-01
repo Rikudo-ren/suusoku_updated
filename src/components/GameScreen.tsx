@@ -72,50 +72,10 @@ const PAD_KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"];
 // label purely for the cut-corner look, while the <button> itself stays an
 // ordinary, fully-tappable rectangle -- so the whole visible key (corners
 // included) registers a press, no matter how fast or imprecisely it's hit.
-// A THIRD cause of dropped taps, on top of the two documented above, only
-// shows up with genuine multi-touch: mash a digit and ENTER with two
-// different fingers fast enough that the second one lands *before* the
-// first lifts, and a real fraction of those second touches never fire at
-// all. `onPointerDown` + `preventDefault()` (below) fixes this for a single
-// finger tapping repeatedly, because the spec guarantees a pointerdown's
-// preventDefault() suppresses the synthetic mouse/click chain that follows
-// it. It does NOT reliably guarantee anything about the browser's own
-// multi-touch gesture arbitration -- the internal logic iOS/Android run to
-// decide "is a second finger going down the start of a pinch/zoom, or an
-// unrelated second tap?" -- which is a judgment call the OS makes across
-// ALL active touches on the page, not per-element, and can cost enough time
-// (or, rarely, silently swallow the touch) to read as an unresponsive key.
-// `touch-action` on the button narrows what that arbitration considers, but
-// it's still the browser deciding on its own schedule.
-// The fix that sidesteps the arbitration entirely: a native, non-passive
-// `touchstart` listener (via `padTouchRef` below) that calls
-// `preventDefault()` the instant a finger lands. Passing `{ passive: false
-// }` explicitly is what makes that call actually take effect instead of
-// being a no-op, and because it runs synchronously inside the browser's own
-// touch-dispatch step (not routed through React's synthetic event queue),
-// it tells the OS "this touch is spoken for" before any gesture-arbitration
-// heuristic gets a chance to hold it back -- independently, per finger, no
-// matter how many other fingers are already down elsewhere on the pad. This
-// is the same technique virtual piano/drum-pad web apps use to keep
-// simultaneous key presses reliable.
-// Pointer and touch events for the *same* physical tap both fire (pointer
-// events are specified to dispatch before their legacy touch counterpart),
-// so `fire` below skips touch pointers -- `padTouchRef`'s listener already
-// handled them -- and only acts on mouse/pen, so nothing double-fires.
 const NumPad = memo(function NumPad({ onPress, accentColor }: { onPress: (k: string) => void; accentColor: string }) {
   const fire = (k: string) => (e: React.PointerEvent<HTMLButtonElement>) => {
     e.preventDefault();
-    if (e.pointerType === "touch") return; // handled by padTouchRef instead
     onPress(k);
-  };
-  const padTouchRef = (k: string) => (node: HTMLButtonElement | null) => {
-    if (!node) return;
-    const onTouchStart = (e: TouchEvent) => {
-      e.preventDefault();
-      onPress(k);
-    };
-    node.addEventListener("touchstart", onTouchStart, { passive: false });
-    return () => node.removeEventListener("touchstart", onTouchStart);
   };
   return (
     <>
