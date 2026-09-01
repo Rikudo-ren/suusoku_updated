@@ -109,7 +109,10 @@ const NumPad = memo(function NumPad({ onPress, accentColor }: { onPress: (k: str
   );
 });
 
-type Fx = { key: number; kind: "correct" | "error"; gain: number } | null;
+// Precomputed once per correct-answer burst (see `triggerFx`), not per
+// render -- see the long comment on `triggerFx` for why this matters.
+type Spark = { dx: number; dy: number; colorIndex: number };
+type Fx = { key: number; kind: "correct" | "error"; gain: number; sparks?: Spark[] } | null;
 
 type Props = {
   difficulty: Difficulty;
@@ -144,8 +147,55 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
   const bigTimeRef = useRef<HTMLDivElement>(null);
 
   const [problem, setProblem] = useState<Problem>(() => generateProblem(difficulty, mode));
+  // ---- Race-free state mirrors -------------------------------------------
+  // `pressKeyRef`/`handlePress` (further below) exist so a fast next tap
+  // always calls the *newest* pressKey/submit closure, no matter how often
+  // NumPad itself re-renders. That solves half the problem: it guarantees
+  // the *function* is current. It does NOT guarantee the *values that
+  // function closes over* (problem/input/factors) are current, because
+  // those only update when React actually commits a re-render -- and a
+  // re-render is not instant. If the player answers correctly and
+  // immediately mashes the next key (or types several digits and hits
+  // ENTER within the same frame), a new pressKey closure carrying the new
+  // state may not have been assigned into the ref yet, so the key press
+  // gets processed against stale data -- a digit gets silently dropped from
+  // the value ENTER actually submits, or a DEL is misrouted between
+  // "erase a digit" and "pop a factor chip". This is exactly the failure
+  // mode described in the comments above (mashing a digit, or alternating
+  // digit/ENTER quickly).
+  //
+  // The fix: mirror the three pieces of state that change during fast play
+  // (problem, input, factors) into refs that are written the instant a
+  // change happens -- synchronously, in the same call that requests the
+  // state update, not after React gets around to rendering. Any logic that
+  // needs to react *instantly and correctly* to input (submit(), pressKey's
+  // DEL branch) reads from these refs. JSX keeps reading the React state
+  // variables directly, since rendering is allowed to lag a frame or two --
+  // it's only the decision logic that can't.
+  const problemRef = useRef(problem);
+  const updateProblem = (next: Problem | ((p: Problem) => Problem)) => {
+    const value = typeof next === "function" ? (next as (p: Problem) => Problem)(problemRef.current) : next;
+    problemRef.current = value;
+    setProblem(value);
+  };
+
   const [input, setInput] = useState("");
+  const inputValRef = useRef("");
+  const updateInput = (next: string | ((v: string) => string)) => {
+    const value = typeof next === "function" ? (next as (v: string) => string)(inputValRef.current) : next;
+    inputValRef.current = value;
+    setInput(value);
+  };
+
   const [factors, setFactors] = useState<number[]>([]);
+  const factorsValRef = useRef<number[]>([]);
+  const updateFactors = (next: number[] | ((f: number[]) => number[])) => {
+    const value = typeof next === "function" ? (next as (f: number[]) => number[])(factorsValRef.current) : next;
+    factorsValRef.current = value;
+    setFactors(value);
+  };
+  // -------------------------------------------------------------------------
+
   const [msg, setMsg] = useState<{ text: string; tone: "info" | "warn" } | null>(null);
   const [fx, setFx] = useState<Fx>(null);
   const [popups, setPopups] = useState<{ id: number; text: string }[]>([]);
@@ -198,6 +248,10 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
   const danger = secondsLeft <= 30;
   const critical = secondsLeft <= 10;
   const score = solved * di.points;
+  // Display-only. Logic that must react instantly to the latest factors
+  // (submit()) recomputes this itself from `factorsValRef.current` instead
+  // of trusting this memo, which is only guaranteed current as of the last
+  // completed render.
   const product = useMemo(() => factors.reduce((a, b) => a * b, 1), [factors]);
 
   /* ---------- countdown ---------- */
@@ -371,13 +425,35 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
 
   const triggerFx = (kind: "correct" | "error", gain = 0) => {
     fxKey.current += 1;
-    setFx({ key: fxKey.current, kind, gain });
+    // Spark/ring offsets are rolled ONCE, right here, at the moment the
+    // burst fires -- not inline in JSX. The previous version computed
+    // Math.random() positions inside the render body, which meant every
+    // unrelated re-render that happened to occur while `fx` was still
+    // truthy (i.e. during the ~900ms the burst animation plays) re-rolled
+    // fresh positions and pushed new inline styles onto all 8 spark
+    // elements + 2 rings, for zero visible benefit -- the burst is only
+    // ever supposed to be decided once. Since a keystroke re-render happens
+    // on literally every digit the player types, and correct answers are
+    // exactly when players are typing fastest (mid-combo), this was real,
+    // avoidable main-thread work landing at the worst possible moment.
+    // Precomputing once and storing the result on the fx object itself
+    // means render only ever reads plain data, no RNG, no matter how many
+    // times it re-runs before the burst finishes.
+    const sparks =
+      kind === "correct" && !lightweight
+        ? Array.from({ length: 8 }).map((_, i) => {
+            const a = (i / 8) * Math.PI * 2 + Math.random();
+            const d = 160 + Math.random() * 220;
+            return { dx: Math.cos(a) * d, dy: Math.sin(a) * d, colorIndex: i % 2 };
+          })
+        : undefined;
+    setFx({ key: fxKey.current, kind, gain, sparks });
   };
 
   const nextProblem = () => {
-    setProblem((p) => generateProblem(difficulty, mode, p.kind));
-    setInput("");
-    setFactors([]);
+    updateProblem((p) => generateProblem(difficulty, mode, p.kind));
+    updateInput("");
+    updateFactors([]);
     setMsg(null);
   };
 
@@ -406,16 +482,22 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
 
   const submit = () => {
     if (phase !== "play" || paused || resuming || doneRef.current) return;
-    const raw = input.trim();
+    // Read everything from the live refs, not from `problem`/`input`/
+    // `factors` state -- those only reflect whatever React last rendered,
+    // which can be one or more keystrokes behind if this fires right after
+    // a fast preceding key press (see the long comment above the ref
+    // declarations for why). The refs are always exactly current.
+    const p = problemRef.current;
+    const raw = inputValRef.current.trim();
 
-    if (problem.kind !== "factor") {
+    if (p.kind !== "factor") {
       if (raw === "") return;
       const val = Number(raw);
       if (Number.isNaN(val)) return;
-      if (val === problem.answer) onCorrect();
+      if (val === p.answer) onCorrect();
       else {
         onMiss(`MISS // ${raw} は違う`);
-        setInput("");
+        updateInput("");
       }
       return;
     }
@@ -424,25 +506,27 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
     const n = Number(raw);
     if (!Number.isInteger(n) || n < 2) {
       onMiss("2以上の素数を入力してください");
-      setInput("");
+      updateInput("");
       return;
     }
     if (!isPrime(n)) {
       onMiss(`${n} は素数ではありません / 素数のみ入力できます`);
-      setInput("");
+      updateInput("");
       return;
     }
-    const rest = problem.target / product;
+    const currentFactors = factorsValRef.current;
+    const currentProduct = currentFactors.reduce((a, b) => a * b, 1);
+    const rest = p.target / currentProduct;
     if (rest % n !== 0) {
-      onMiss(`${n} は ${problem.target} の素因数ではありません`);
-      setInput("");
+      onMiss(`${n} は ${p.target} の素因数ではありません`);
+      updateInput("");
       return;
     }
-    const nf = [...factors, n].sort((a, b) => a - b);
-    setFactors(nf);
-    setInput("");
+    const nf = [...currentFactors, n].sort((a, b) => a - b);
+    updateFactors(nf);
+    updateInput("");
     const prod = nf.reduce((a, b) => a * b, 1);
-    if (prod === problem.target) {
+    if (prod === p.target) {
       window.setTimeout(() => onCorrect(), 90);
     } else {
       sfxFactorAdd(nf.length);
@@ -455,9 +539,9 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
       e.preventDefault();
       submit();
     } else if (e.key === "Backspace") {
-      if (input === "" && problem.kind === "factor" && factors.length > 0) {
+      if (inputValRef.current === "" && problemRef.current.kind === "factor" && factorsValRef.current.length > 0) {
         e.preventDefault();
-        setFactors((f) => f.slice(0, -1));
+        updateFactors((f) => f.slice(0, -1));
         sfxDelete();
         setMsg(null);
       }
@@ -471,18 +555,18 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
       return;
     }
     if (k === "DEL") {
-      if (input === "") {
-        if (problem.kind === "factor" && factors.length > 0) {
-          setFactors((f) => f.slice(0, -1));
+      if (inputValRef.current === "") {
+        if (problemRef.current.kind === "factor" && factorsValRef.current.length > 0) {
+          updateFactors((f) => f.slice(0, -1));
           sfxDelete();
         }
       } else {
-        setInput((v) => v.slice(0, -1));
+        updateInput((v) => v.slice(0, -1));
         sfxDelete();
       }
       return;
     }
-    setInput((v) => (v.length < 9 ? v + k : v));
+    updateInput((v) => (v.length < 9 ? v + k : v));
     sfxType();
     // NOTE: previously called inputRef.current?.focus() here for a visible
     // caret on mobile, but re-focusing a readOnly input on every keypad tap
@@ -565,31 +649,28 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
               {/* Rings + sparks are the priciest part of this burst, and it
                   fires on every single correct answer -- the single most
                   frequent event in the game, and exactly when the player is
-                  typing fastest. Skip them in lightweight mode, and use
-                  fewer sparks even in normal mode (14 -> 8) to cut down on
-                  main-thread work competing with touch input. */}
+                  typing fastest. Skip them in lightweight mode. Offsets come
+                  from `fx.sparks`, precomputed once in `triggerFx` (see the
+                  comment there) instead of being rolled again on every
+                  re-render this burst happens to overlap with. */}
               {!lightweight && (
                 <>
                   <div className="ring-burst absolute h-64 w-64 rounded-full border-cyan-300" style={{ borderStyle: "solid", borderWidth: "3px" }} />
                   <div className="ring-burst absolute h-64 w-64 rounded-full border-fuchsia-400" style={{ borderStyle: "solid", borderWidth: "3px", animationDelay: "0.08s" }} />
-                  {Array.from({ length: 8 }).map((_, i) => {
-                    const a = (i / 8) * Math.PI * 2 + Math.random();
-                    const d = 160 + Math.random() * 220;
-                    return (
-                      <span
-                        key={i}
-                        className="spark absolute h-1.5 w-1.5 rounded-full"
-                        style={
-                          {
-                            background: i % 2 ? "#22e4ff" : "#ff2bd1",
-                            boxShadow: "0 0 12px currentColor",
-                            "--dx": `${Math.cos(a) * d}px`,
-                            "--dy": `${Math.sin(a) * d}px`,
-                          } as React.CSSProperties
-                        }
-                      />
-                    );
-                  })}
+                  {fx.sparks?.map((s, i) => (
+                    <span
+                      key={i}
+                      className="spark absolute h-1.5 w-1.5 rounded-full"
+                      style={
+                        {
+                          background: s.colorIndex ? "#22e4ff" : "#ff2bd1",
+                          boxShadow: "0 0 12px currentColor",
+                          "--dx": `${s.dx}px`,
+                          "--dy": `${s.dy}px`,
+                        } as React.CSSProperties
+                      }
+                    />
+                  ))}
                 </>
               )}
               <div className="pop-in font-display text-4xl font-black tracking-[0.3em] text-white neon md:text-6xl" style={{ animation: "float-up 0.75s ease-out forwards" }}>
@@ -852,8 +933,8 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
               onChange={(e) => {
                 if (paused || resuming) return;
                 const v = e.target.value.replace(/[^0-9]/g, "").slice(0, 9);
-                if (v.length > input.length) sfxType();
-                setInput(v);
+                if (v.length > inputValRef.current.length) sfxType();
+                updateInput(v);
               }}
               onKeyDown={onKeyDown}
               className="w-full bg-transparent font-display text-3xl font-black tracking-widest text-white placeholder-white/20 md:text-4xl"
