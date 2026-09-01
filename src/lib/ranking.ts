@@ -220,6 +220,44 @@ export async function submitScore(
   }
 }
 
+/* ---------------- placement lookup (for result-screen "X位にランクイン") ---------------- */
+
+/**
+ * After a score has been submitted, find this player's placement (1-based)
+ * on the mode/difficulty leaderboard, plus the total number of ranked
+ * entries. Used by the result screen right after a run to show e.g.
+ * "12位にランクイン！" -- so it must be called *after* `submitScore` has
+ * resolved, otherwise this run's score may not be reflected yet.
+ */
+export async function fetchMyRank(
+  mode: ProblemMode,
+  difficulty: Difficulty,
+): Promise<{ rank: number; total: number } | null> {
+  const uid = await ensureAuthUid().catch(() => null);
+  if (!uid) return null;
+  try {
+    const snap = await get(ref(db, boardPath(mode, difficulty)));
+    const arr: { uid?: string; score: number; ts: number }[] = [];
+    snap.forEach((c) => {
+      const v = c.val() ?? {};
+      arr.push({
+        uid: typeof v.uid === "string" ? v.uid : undefined,
+        score: Number(v.score) || 0,
+        ts: typeof v.ts === "number" ? v.ts : 0,
+      });
+    });
+    // Same ordering as `subscribeBoard`: highest score first, earliest
+    // timestamp breaks ties, so the computed rank matches what the ranking
+    // board actually displays.
+    arr.sort((a, b) => b.score - a.score || a.ts - b.ts);
+    const idx = arr.findIndex((e) => e.uid === uid);
+    if (idx === -1) return null;
+    return { rank: idx + 1, total: arr.length };
+  } catch {
+    return null;
+  }
+}
+
 /* ---------------- shared live name lookup (uid -> current name) ---------------- */
 
 type PlayersMap = Record<string, string>;
