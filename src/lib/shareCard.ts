@@ -363,9 +363,27 @@ export async function renderShareCard(stats: ShareStats, lang: ShareLang): Promi
     ctx.fillText(stats.rankLabel, leftCenterX, 330);
   });
 
+  // The rank title varies a lot in length ("ELITE OPERATOR" vs
+  // "TRANSCENDENT CALCULATOR", and even more so once letter-spaced via
+  // `spaced()`), and the left column isn't very wide. Shrink the font -- and
+  // as a last resort, drop the letter-spacing gap from 2 to 1 -- until the
+  // spaced string actually fits, so a long title never spills past the
+  // rank-letter column into the divider/score column next to it.
+  const titleMaxWidth = 250;
+  let rankTitleGap = 2;
+  let rankTitleText = spaced(stats.rankTitle, rankTitleGap);
+  let rankTitleSize = fitFontSize(ctx, rankTitleText, titleMaxWidth, 700, FONT_MONO, 20, 13);
+  if (rankTitleSize <= 13) {
+    ctx.font = `700 13px ${FONT_MONO}`;
+    if (ctx.measureText(rankTitleText).width > titleMaxWidth) {
+      rankTitleGap = 1;
+      rankTitleText = spaced(stats.rankTitle, rankTitleGap);
+      rankTitleSize = fitFontSize(ctx, rankTitleText, titleMaxWidth, 700, FONT_MONO, 18, 11);
+    }
+  }
   ctx.fillStyle = stats.rankColor;
-  ctx.font = `700 20px ${FONT_MONO}`;
-  ctx.fillText(spaced(stats.rankTitle, 2), leftCenterX, 376);
+  ctx.font = `700 ${rankTitleSize}px ${FONT_MONO}`;
+  ctx.fillText(rankTitleText, leftCenterX, 376);
 
   let nextY = 376;
   if (stats.isNewRecord) {
@@ -430,13 +448,14 @@ export async function renderShareCard(stats: ShareStats, lang: ShareLang): Promi
   ctx.lineTo(rightEdge, 326);
   ctx.stroke();
 
-  const boxGap = 14;
-  const boxW = (rightEdge - rightX - boxGap * 2) / 3;
+  // Share card intentionally shows SCORE only alongside the identity/rank
+  // info -- MISS and MAX COMBO aren't meaningful to someone just glancing at
+  // a shared image, so they're left off here (they still show on the result
+  // screen itself). SOLVED alone doesn't need three cramped boxes, so it
+  // gets one wide box instead of a 3-way split.
   const boxY = 346;
   const boxH = 132;
-  drawStatBox(ctx, rightX, boxY, boxW, boxH, "#22e4ff", "✅", "SOLVED", String(stats.solved));
-  drawStatBox(ctx, rightX + boxW + boxGap, boxY, boxW, boxH, "#ff2bd1", "🔥", "MAX COMBO", `×${stats.maxCombo}`);
-  drawStatBox(ctx, rightX + (boxW + boxGap) * 2, boxY, boxW, boxH, "#ff6b5e", "✕", "MISS", String(stats.misses));
+  drawStatBox(ctx, rightX, boxY, rightEdge - rightX, boxH, "#22e4ff", "✅", "SOLVED", String(stats.solved));
 
   /* ---------------- footer ---------------- */
   ctx.strokeStyle = "rgba(255,255,255,0.14)";
