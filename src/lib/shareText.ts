@@ -15,6 +15,8 @@ export type ShareStats = {
   solved: number;
   misses: number;
   maxCombo: number;
+  /** Current pilot name (editable on the result screen) at the moment of sharing. */
+  playerName: string;
   /** Japanese mode name, e.g. "乗除算". */
   modeLabelJa: string;
   /** English mode short-label already used elsewhere in the UI, e.g. "MUL-DIV". */
@@ -42,6 +44,7 @@ export type ShareStats = {
 
 export function buildShareStats(params: {
   stats: GameStats;
+  playerName: string;
   rankLabel: string;
   rankTitle: string;
   rankColor: string;
@@ -57,6 +60,7 @@ export function buildShareStats(params: {
     solved: params.stats.solved,
     misses: params.stats.misses,
     maxCombo: params.stats.maxCombo,
+    playerName: params.playerName,
     modeLabelJa: mi.label,
     modeLabelEn: mi.sub,
     difficultyLabel: di.label,
@@ -89,7 +93,7 @@ export function buildShareCaption(s: ShareStats, lang: ShareLang): { body: strin
   const lines: string[] = [];
 
   if (lang === "ja") {
-    lines.push(`数速バトルで${mode}×${s.difficultyLabel}に挑戦！`);
+    lines.push(`${s.playerName}が数速バトルで${mode}×${s.difficultyLabel}に挑戦！`);
     lines.push(`スコア ${s.score}｜ランク ${s.rankLabel}「${s.rankTitle}」`);
     if (s.isNewRecord) {
       lines.push(s.prevBest > 0 ? `🏆 自己ベスト更新！(+${s.bestDiff})` : "🏆 自己ベスト達成！");
@@ -98,7 +102,7 @@ export function buildShareCaption(s: ShareStats, lang: ShareLang): { body: strin
       lines.push(`🎉 ランキング${s.rankInfo.rank}位にランクイン！（${s.rankInfo.total}人中）`);
     }
   } else {
-    lines.push(`Just played Numeric Velocity — ${mode} × ${s.difficultyLabel}!`);
+    lines.push(`${s.playerName} just played Numeric Velocity — ${mode} × ${s.difficultyLabel}!`);
     lines.push(`Score ${s.score} | Rank ${s.rankLabel} "${s.rankTitle}"`);
     if (s.isNewRecord) {
       lines.push(s.prevBest > 0 ? `🏆 New personal best! (+${s.bestDiff})` : "🏆 New personal best!");
