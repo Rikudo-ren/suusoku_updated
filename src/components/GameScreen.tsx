@@ -57,6 +57,21 @@ const PAD_KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"];
 //      quickly -- that fight is exactly what was dropping presses. Suppressing
 //      the synthetic chain entirely makes every pointerdown behave the same
 //      regardless of how fast the previous one was.
+//
+// A second, separate cause of dropped taps lived in the button's own visual
+// shape. `.clip-chip` cuts each corner off with `clip-path: polygon(...)`,
+// and `clip-path` doesn't just clip what's painted -- Chrome, Safari, and
+// Firefox all also clip *hit-testing* to that same polygon, so the cut
+// corners are not tappable at all; a touch landing there falls straight
+// through to whatever is behind the button. On a ~60px mobile pad key that
+// dead zone is a real fraction of the button, easy to miss when tapping
+// slowly and deliberately but far more likely to get hit once fingers are
+// moving fast and less precisely -- exactly the "mash 2 and ENTER back to
+// back" pattern that was reported as unresponsive. The fix: the clip-path
+// now lives on a non-interactive `aria-hidden` <span> layered *behind* the
+// label purely for the cut-corner look, while the <button> itself stays an
+// ordinary, fully-tappable rectangle -- so the whole visible key (corners
+// included) registers a press, no matter how fast or imprecisely it's hit.
 const NumPad = memo(function NumPad({ onPress, accentColor }: { onPress: (k: string) => void; accentColor: string }) {
   const fire = (k: string) => (e: React.PointerEvent<HTMLButtonElement>) => {
     e.preventDefault();
@@ -71,9 +86,13 @@ const NumPad = memo(function NumPad({ onPress, accentColor }: { onPress: (k: str
             type="button"
             onPointerDown={fire(k)}
             style={{ touchAction: "manipulation" }}
-            className="clip-chip select-none border border-cyan-400/30 bg-white/5 py-3 font-display text-lg font-black text-cyan-100 active:bg-cyan-400/30"
+            className="group relative flex select-none items-center justify-center py-3"
           >
-            {k}
+            <span
+              aria-hidden="true"
+              className="clip-chip absolute inset-0 border border-cyan-400/30 bg-white/5 group-active:bg-cyan-400/30"
+            />
+            <span className="relative z-10 font-display text-lg font-black text-cyan-100">{k}</span>
           </button>
         ))}
       </div>
@@ -84,9 +103,10 @@ const NumPad = memo(function NumPad({ onPress, accentColor }: { onPress: (k: str
           aria-label="削除"
           title="削除"
           style={{ touchAction: "manipulation" }}
-          className="clip-chip flex select-none items-center justify-center border border-white/25 bg-white/5 py-3 text-white/75 active:bg-white/20"
+          className="group relative flex select-none items-center justify-center py-3 text-white/75"
         >
-          <svg width="22" height="16" viewBox="0 0 22 16" fill="none" aria-hidden="true">
+          <span aria-hidden="true" className="clip-chip absolute inset-0 border border-white/25 bg-white/5 group-active:bg-white/20" />
+          <svg className="relative z-10" width="22" height="16" viewBox="0 0 22 16" fill="none" aria-hidden="true">
             <path
               d="M7.2 1H20a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H7.2a1 1 0 0 1-.77-.36L1 8l5.43-6.64A1 1 0 0 1 7.2 1Z"
               stroke="currentColor"
@@ -99,10 +119,15 @@ const NumPad = memo(function NumPad({ onPress, accentColor }: { onPress: (k: str
         <button
           type="button"
           onPointerDown={fire("ENT")}
-          style={{ touchAction: "manipulation", background: accentColor, boxShadow: `0 0 20px ${accentColor}` }}
-          className="clip-chip select-none py-3 font-display text-lg font-black text-black active:brightness-90"
+          style={{ touchAction: "manipulation" }}
+          className="group relative flex select-none items-center justify-center py-3"
         >
-          ⏎ ENTER
+          <span
+            aria-hidden="true"
+            className="clip-chip absolute inset-0 group-active:brightness-90"
+            style={{ background: accentColor, boxShadow: `0 0 20px ${accentColor}` }}
+          />
+          <span className="relative z-10 font-display text-lg font-black text-black">⏎ ENTER</span>
         </button>
       </div>
     </>
