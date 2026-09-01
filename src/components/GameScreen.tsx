@@ -44,14 +44,32 @@ const PAD_KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"];
 // timer tick, or any other GameScreen state update. `onPress` must be a
 // referentially stable function (see `handlePress` in GameScreen) or this
 // memoization does nothing.
+// Every pad button fires on `onPointerDown` with `e.preventDefault()` (not
+// `onClick`) for two reasons:
+//   1. Instant response -- no waiting for the browser's up/click sequence.
+//   2. `preventDefault()` here stops the browser from following this pointer
+//      down with its own synthetic mousedown/focus/mouseup/click chain. Left
+//      alone, that chain steals focus onto the <button> that was just
+//      tapped; the *next* tap (whether it lands on the same button again or
+//      a different one) then has to fight that stolen focus and iOS/Android's
+//      fast-tap/double-tap gesture recognition on top of it. During rapid
+//      repeated taps -- mashing the same digit, or alternating digit/ENTER
+//      quickly -- that fight is exactly what was dropping presses. Suppressing
+//      the synthetic chain entirely makes every pointerdown behave the same
+//      regardless of how fast the previous one was.
 const NumPad = memo(function NumPad({ onPress, accentColor }: { onPress: (k: string) => void; accentColor: string }) {
+  const fire = (k: string) => (e: React.PointerEvent<HTMLButtonElement>) => {
+    e.preventDefault();
+    onPress(k);
+  };
   return (
     <>
       <div className="mt-3 grid grid-cols-5 gap-1.5 md:hidden">
         {PAD_KEYS.map((k) => (
           <button
             key={k}
-            onPointerDown={() => onPress(k)}
+            type="button"
+            onPointerDown={fire(k)}
             style={{ touchAction: "manipulation" }}
             className="clip-chip select-none border border-cyan-400/30 bg-white/5 py-3 font-display text-lg font-black text-cyan-100 active:bg-cyan-400/30"
           >
@@ -61,7 +79,8 @@ const NumPad = memo(function NumPad({ onPress, accentColor }: { onPress: (k: str
       </div>
       <div className="mt-1.5 grid grid-cols-2 gap-1.5 md:hidden">
         <button
-          onPointerDown={() => onPress("DEL")}
+          type="button"
+          onPointerDown={fire("DEL")}
           aria-label="削除"
           title="削除"
           style={{ touchAction: "manipulation" }}
@@ -78,7 +97,8 @@ const NumPad = memo(function NumPad({ onPress, accentColor }: { onPress: (k: str
           </svg>
         </button>
         <button
-          onPointerDown={() => onPress("ENT")}
+          type="button"
+          onPointerDown={fire("ENT")}
           style={{ touchAction: "manipulation", background: accentColor, boxShadow: `0 0 20px ${accentColor}` }}
           className="clip-chip select-none py-3 font-display text-lg font-black text-black active:brightness-90"
         >
