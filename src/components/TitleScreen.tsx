@@ -3,6 +3,7 @@ import Backdrop from "./Backdrop";
 import { DIFF_INFO, MAX_PAUSES, MODE_INFO, MODE_ORDER, TITLE_DIFFS, type Difficulty, type ProblemMode } from "../lib/problems";
 import { sfxSelect, sfxStart, sfxUI } from "../lib/audio";
 import { claimName, loadPlayerName } from "../lib/ranking";
+import { RANKS } from "../lib/ranks";
 
 type Props = {
   onStart: (d: Difficulty, m: ProblemMode) => void;
@@ -27,6 +28,7 @@ export default function TitleScreen({ onStart, onRanking, best, audioReady, ligh
   const [nameDraft, setNameDraft] = useState(name);
   const [nameError, setNameError] = useState<string | null>(null);
   const [nameSaving, setNameSaving] = useState(false);
+  const [showRankTable, setShowRankTable] = useState(false);
 
   const commitName = async () => {
     if (nameSaving) return;
@@ -185,6 +187,15 @@ export default function TitleScreen({ onStart, onRanking, best, audioReady, ligh
               className="clip-chip border border-fuchsia-400/30 bg-black/40 px-2.5 py-1 font-mono2 text-[10px] font-black tracking-[0.15em] text-fuchsia-200/85 hover:border-fuchsia-300 hover:text-fuchsia-100"
             >
               🏆 RANKING
+            </button>
+            <button
+              onClick={() => {
+                sfxUI();
+                setShowRankTable(true);
+              }}
+              className="clip-chip border border-cyan-400/30 bg-black/40 px-2.5 py-1 font-mono2 text-[10px] font-black tracking-[0.15em] text-cyan-200/85 hover:border-cyan-300 hover:text-cyan-100"
+            >
+              ⚙ RANK一覧
             </button>
           </span>
         </div>
@@ -386,6 +397,73 @@ export default function TitleScreen({ onStart, onRanking, best, audioReady, ligh
           [ CLICK ] SELECT&nbsp;&nbsp;/&nbsp;&nbsp;[ ARROWS ] MOVE&nbsp;&nbsp;/&nbsp;&nbsp;[ ENTER ] START
         </div>
       </div>
+
+      {/* RANK TABLE MODAL -- shows the score->rank breakdown (the same table
+          ResultScreen uses to pick a rank) so a player can check what score
+          they need for the next grade without having to finish a run first. */}
+      {showRankTable && (
+        <div
+          className="absolute inset-0 z-50 flex items-center justify-center bg-black/70 px-4"
+          style={{ animation: "pop-in 0.18s ease-out both" }}
+          onClick={() => {
+            sfxUI();
+            setShowRankTable(false);
+          }}
+        >
+          <div
+            className="clip-panel relative w-[min(92vw,520px)] max-h-[86vh] overflow-y-auto border border-cyan-400/40 bg-black/85 p-5 backdrop-blur-xl md:p-7"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <span className="absolute left-2 top-2 h-3 w-3 border-l border-t border-cyan-300/80" />
+            <span className="absolute right-2 top-2 h-3 w-3 border-r border-t border-cyan-300/80" />
+            <span className="absolute bottom-2 left-2 h-3 w-3 border-b border-l border-cyan-300/80" />
+            <span className="absolute bottom-2 right-2 h-3 w-3 border-b border-r border-cyan-300/80" />
+
+            <div className="mb-1 font-mono2 text-[10px] tracking-[0.4em] text-cyan-300/70">SYSTEM // RANK TABLE</div>
+            <h2 className="glitch font-display text-2xl font-black tracking-[0.15em] text-white neon md:text-3xl" data-text="RANK一覧">
+              RANK一覧
+            </h2>
+            <div className="mt-1 mb-4 font-mono2 text-[10px] tracking-widest text-white/35">
+              SCORE = 解けた数 × 難易度倍率
+            </div>
+
+            <div className="flex flex-col gap-2">
+              {RANKS.map((r) => (
+                <div
+                  key={r.label}
+                  className="clip-btn flex items-center gap-3 border px-3 py-2.5 md:px-4 md:py-3"
+                  style={{ borderColor: `${r.color}55`, background: `${r.color}14` }}
+                >
+                  <div
+                    className="font-display w-14 shrink-0 text-center text-3xl font-black leading-none md:w-16 md:text-4xl"
+                    style={{ color: r.color, textShadow: `0 0 12px ${r.color}` }}
+                  >
+                    {r.label}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate font-mono2 text-[11px] font-bold tracking-[0.15em] md:text-xs" style={{ color: r.color }}>
+                      {r.title}
+                    </div>
+                    <div className="mt-0.5 font-mono2 text-[9px] tracking-widest text-white/40 md:text-[10px]">
+                      SCORE {r.min}〜
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <button
+              onClick={() => {
+                sfxUI();
+                setShowRankTable(false);
+              }}
+              className="clip-btn mt-5 w-full border border-white/25 bg-white/5 px-5 py-2.5 font-display text-sm font-black tracking-[0.2em] text-white/80 transition-colors hover:bg-white/10 hover:text-white"
+            >
+              CLOSE
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
