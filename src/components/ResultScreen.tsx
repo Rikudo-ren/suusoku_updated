@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Backdrop from "./Backdrop";
 import { DIFF_INFO, MODE_INFO } from "../lib/problems";
 import type { GameStats } from "./GameScreen";
-import { setMusicMode, sfxRank, sfxResultHit, sfxSelect, sfxUI, startMusic } from "../lib/audio";
+import { setMusicMode, sfxNewRecord, sfxRank, sfxResultHit, sfxSelect, sfxUI, startMusic } from "../lib/audio";
 import { claimName, fetchMyRank, loadPlayerName, submitScore } from "../lib/ranking";
 
 const RANKS: { min: number; label: string; color: string; title: string }[] = [
@@ -35,6 +35,7 @@ function useCountUp(target: number, run: boolean, dur = 900) {
 export default function ResultScreen({
   stats,
   isBest,
+  prevBest,
   lightweight,
   ultra,
   onRetry,
@@ -43,6 +44,7 @@ export default function ResultScreen({
 }: {
   stats: GameStats;
   isBest: boolean;
+  prevBest: number;
   lightweight: boolean;
   ultra: boolean;
   onRetry: () => void;
@@ -52,6 +54,10 @@ export default function ResultScreen({
   const di = DIFF_INFO[stats.difficulty];
   const mi = MODE_INFO[stats.mode];
   const rank = useMemo(() => RANKS.find((r) => stats.score >= r.min) ?? RANKS[RANKS.length - 1], [stats.score]);
+  // How this run compares to the personal best going into it. When isBest
+  // is true this is the improvement margin ("+42"); otherwise it's how far
+  // short of the record this run fell (<= 0, "±0" on an exact tie).
+  const bestDiff = stats.score - prevBest;
   const [stage, setStage] = useState(0); // 0 timeup, 1 panel, 2 rows, 3 score, 4 rank, 5 buttons
   const timers = useRef<number[]>([]);
 
@@ -60,7 +66,7 @@ export default function ResultScreen({
   // than in App.tsx) so the two stay in order: we must wait for the submit
   // to finish writing before asking the board where we rank, or we'd read a
   // stale position.
-  const [rankInfo, setRankInfo] = useState<{ rank: number; total: number } | null>(null);
+  const [rankInfo, setRankInfo] = useState<{ rank: number; total: number; aboveDiff: number | null } | null>(null);
   const [rankPending, setRankPending] = useState(false);
 
   useEffect(() => {
@@ -73,7 +79,7 @@ export default function ResultScreen({
       misses: stats.misses,
       maxCombo: stats.maxCombo,
     })
-      .then(() => fetchMyRank(stats.mode, stats.difficulty))
+      .then(() => fetchMyRank(stats.mode, stats.difficulty, stats.score))
       .then((r) => {
         if (!cancelled) setRankInfo(r);
       })
@@ -123,12 +129,18 @@ export default function ResultScreen({
     }, 2000);
     [0, 1, 2, 3].forEach((i) => add(() => sfxResultHit(i), 2200 + i * 220));
     add(() => setStage(3), 3150);
+    // The score count-up (see useCountUp below) runs 1000ms from the moment
+    // stage 3 lands, so firing this right as it finishes lines the fanfare
+    // up with the NEW RECORD chip appearing rather than with the score
+    // still ticking up.
+    if (isBest && stats.score > 0) add(() => sfxNewRecord(), 3150 + 1000);
     add(() => {
       setStage(4);
       sfxRank();
     }, 4200);
     add(() => setStage(5), 5100);
     return () => timers.current.forEach(clearTimeout);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Deliberately no "tap/press anything to skip the reveal" shortcut here
@@ -284,10 +296,55 @@ export default function ResultScreen({
                     <div className="mt-1 font-mono2 text-[11px] tracking-widest text-white/40">
                       {stats.solved} Q × {di.points} PTS
                     </div>
-                    {isBest && stats.score > 0 && (
-                      <div className="mt-2 inline-block clip-chip bg-yellow-300/20 px-3 py-1 font-display text-xs font-black tracking-[0.3em] text-yellow-200 neon">
-                        NEW RECORD
+                    {isBest && stats.score > 0 ? (
+                      <div className="relative mt-3 inline-flex flex-col items-center">
+                        {/* One-shot radial gold flash behind the chip, plus a
+                            burst of sparks -- skipped in lightweight/ultra
+                            mode along with every other purely-decorative FX
+                            in this app. */}
+                        {!lightweight && (
+                          <div
+                            className="record-flash pointer-events-none absolute -inset-12 -z-10"
+                            style={{ background: "radial-gradient(circle, rgba(255,228,94,0.55), transparent 65%)" }}
+                          />
+                        )}
+                        {!lightweight &&
+                          Array.from({ length: 10 }).map((_, i) => {
+                            const a = (i / 10) * Math.PI * 2 + Math.random() * 0.4;
+                            const d = 44 + Math.random() * 68;
+                            return (
+                              <span
+                                key={i}
+                                className="spark pointer-events-none absolute left-1/2 top-1/2 h-1.5 w-1.5 rounded-full"
+                                style={
+                                  {
+                                    background: i % 2 ? "#ffe45e" : "#fff6c8",
+                                    boxShadow: "0 0 10px currentColor",
+                                    "--dx": `${Math.cos(a) * d}px`,
+                                    "--dy": `${Math.sin(a) * d}px`,
+                                    animationDelay: `${0.05 + i * 0.025}s`,
+                                  } as React.CSSProperties
+                                }
+                              />
+                            );
+                          })}
+                        <div className="record-pop record-glow-pulse relative overflow-hidden clip-chip border border-yellow-300/60 bg-gradient-to-r from-yellow-400/20 via-yellow-100/35 to-yellow-400/20 px-4 py-1.5">
+                          <span className="relative z-10 font-display text-xs font-black tracking-[0.3em] text-yellow-100 neon">
+                            🏆 NEW RECORD{prevBest > 0 ? ` +${bestDiff}` : ""}
+                          </span>
+                          {!lightweight && (
+                            <span className="record-shine pointer-events-none absolute inset-y-0 left-[-40%] w-1/3 -skew-x-[20deg] bg-white/50 blur-[2px]" />
+                          )}
+                        </div>
                       </div>
+                    ) : (
+                      stats.score > 0 &&
+                      prevBest > 0 && (
+                        <div className="mt-2 font-mono2 text-[10px] tracking-[0.2em] text-white/45">
+                          自己ベスト {prevBest}
+                          <span className="ml-1 text-rose-300/90">{bestDiff === 0 ? "±0" : bestDiff}</span>
+                        </div>
+                      )
                     )}
                   </div>
                 )}
@@ -332,7 +389,18 @@ export default function ResultScreen({
                             <span className="font-display text-sm font-black text-white/80">位</span>
                             <span className="ml-1 font-mono2 text-[10px] text-white/40">/ {rankInfo.total}人中</span>
                           </div>
-                          <div className="font-mono2 text-[10px] tracking-[0.25em] text-fuchsia-200">にランクイン！</div>
+                          <div className="font-mono2 text-[10px] tracking-[0.25em] text-fuchsia-200">
+                            {isBest ? "にランクイン！" : "相当（自己ベストなら）"}
+                          </div>
+                          {rankInfo.aboveDiff !== null ? (
+                            <div className="mt-1.5 font-mono2 text-[9px] tracking-[0.2em] text-cyan-200/70">
+                              次の順位まであと <span className="font-bold text-cyan-200">{rankInfo.aboveDiff}</span>pt
+                            </div>
+                          ) : (
+                            <div className="mt-1.5 font-mono2 text-[9px] tracking-[0.25em] text-yellow-200/80">
+                              🏆 TOP RANKER
+                            </div>
+                          )}
                         </>
                       ) : rankPending ? (
                         <div className="pulse-soft py-1 font-mono2 text-[10px] tracking-widest text-white/40">集計中…</div>
