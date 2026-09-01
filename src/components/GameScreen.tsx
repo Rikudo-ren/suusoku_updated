@@ -482,7 +482,7 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
   pressKeyRef.current = pressKey;
   const handlePress = useCallback((k: string) => pressKeyRef.current(k), []);
 
-  /* ---------- resume with blur-clear countdown ---------- */
+  /* ---------- resume countdown ---------- */
   const startResume = () => {
     if (resuming) return;
     setResuming(true);
@@ -509,7 +509,16 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
   const timeColor = danger ? "#ff3b5c" : "#22e4ff";
   const mm = Math.floor(secondsLeft / 60);
   const ss = secondsLeft % 60;
-  const blurAmt = resuming ? Math.max(0, resumeCount) * 4 : paused ? 14 : 0;
+  // Only desaturate while paused/resuming -- this used to also blur the
+  // problem panel (ramping back to sharp over the resume countdown), but
+  // that blur came from a CSS `filter`, and ULTRA mode's global CSS rule
+  // strips ALL filters for performance. That meant an ULTRA player could
+  // keep reading the problem through a pause while everyone else on
+  // LITE/normal had it hidden -- a real, mode-dependent advantage, not just
+  // a cosmetic difference. Desaturation alone doesn't hide any information
+  // (the digits stay fully legible, just less vivid), so it's fine for this
+  // to differ slightly under ULTRA (where it's stripped too) -- nothing
+  // here can be exploited either way.
   const saturation = resuming ? 1 - Math.max(0, resumeCount) * 0.14 : paused ? 0.4 : 1;
 
   return (
@@ -575,7 +584,7 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
 
       {/* countdown */}
       {phase === "countdown" && (
-        <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/75 backdrop-blur-md">
+        <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/75">
           <div className="absolute h-[42vmin] w-[42vmin] rounded-full border border-cyan-300/30 countdown-halo" />
           <div className="absolute h-[32vmin] w-[32vmin] rounded-full border border-fuchsia-300/25 countdown-halo" style={{ animationDelay: "0.12s" }} />
           <div
@@ -587,11 +596,11 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
         </div>
       )}
 
-      {/* GAME UI (blurs when paused) */}
+      {/* GAME UI (desaturates when paused) */}
       <div
         className="relative z-10 flex h-full w-full flex-col px-4 py-3 md:px-8 md:py-5"
         style={{
-          filter: `blur(${blurAmt}px) saturate(${saturation})`,
+          filter: `saturate(${saturation})`,
           transform: `scale(${paused ? 0.99 : 1})`,
           transition: "filter 0.4s ease, transform 0.4s ease",
         }}
@@ -870,7 +879,7 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
       {/* PAUSE OVERLAY */}
       {paused && !resuming && phase === "play" && (
         <div
-          className="absolute inset-0 z-40 flex items-center justify-center bg-black/65 backdrop-blur-md"
+          className="absolute inset-0 z-40 flex items-center justify-center bg-black/65"
           style={{ animation: "pop-in 0.18s ease-out both" }}
         >
           <div className="clip-panel relative w-[min(92vw,560px)] border border-cyan-400/40 bg-black/75 p-6 backdrop-blur-xl md:p-8">
@@ -954,7 +963,7 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
         </div>
       )}
 
-      {/* RESUME 3-2-1 countdown over blurred game */}
+      {/* RESUME 3-2-1 countdown */}
       {resuming && (
         <div className="pointer-events-none absolute inset-0 z-50 flex items-center justify-center bg-black/25">
           <div className="absolute h-[42vmin] w-[42vmin] rounded-full border border-cyan-300/30 countdown-halo" />
