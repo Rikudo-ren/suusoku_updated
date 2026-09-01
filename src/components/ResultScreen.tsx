@@ -510,6 +510,7 @@ export default function ResultScreen({
                   bestDiff={bestDiff}
                   rank={rank}
                   rankInfo={rankInfo}
+                  name={name}
                 />
               </div>
             )}
