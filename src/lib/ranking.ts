@@ -223,36 +223,59 @@ export async function submitScore(
 /* ---------------- placement lookup (for result-screen "X位にランクイン") ---------------- */
 
 /**
- * After a score has been submitted, find this player's placement (1-based)
- * on the mode/difficulty leaderboard, plus the total number of ranked
- * entries. Used by the result screen right after a run to show e.g.
+ * After a score has been submitted, find where THIS RUN's score places on
+ * the mode/difficulty leaderboard, plus the total number of ranked entries
+ * and the point gap to the rank one place better ("aboveDiff"; null if
+ * already #1). Used by the result screen right after a run to show e.g.
  * "12位にランクイン！" -- so it must be called *after* `submitScore` has
- * resolved, otherwise this run's score may not be reflected yet.
+ * resolved, otherwise other players' entries may be stale.
+ *
+ * `runScore` (this run's own score, not necessarily this player's best) is
+ * substituted for whatever is actually stored under this player's uid
+ * before ranking. This matters because `submitScore` only overwrites the
+ * stored entry when the run beats it -- so after a run that did NOT set a
+ * new personal best, the DB still holds the OLD (higher) best, and ranking
+ * against that would show the placement of a score the player didn't just
+ * get. Substituting `runScore` makes this function always answer "where
+ * would THIS run land", consistently whether or not it was a new record:
+ * on a new-record run the stored entry already equals `runScore` anyway
+ * (so this is a no-op), and on a non-record run it answers "if this run's
+ * score *were* my best, this is the rank it would hold".
  */
 export async function fetchMyRank(
   mode: ProblemMode,
   difficulty: Difficulty,
-): Promise<{ rank: number; total: number } | null> {
+  runScore: number,
+): Promise<{ rank: number; total: number; aboveDiff: number | null } | null> {
   const uid = await ensureAuthUid().catch(() => null);
   if (!uid) return null;
   try {
     const snap = await get(ref(db, boardPath(mode, difficulty)));
     const arr: { uid?: string; score: number; ts: number }[] = [];
+    let sawSelf = false;
     snap.forEach((c) => {
       const v = c.val() ?? {};
+      const entryUid = typeof v.uid === "string" ? v.uid : undefined;
+      const isSelf = entryUid === uid;
+      if (isSelf) sawSelf = true;
       arr.push({
-        uid: typeof v.uid === "string" ? v.uid : undefined,
-        score: Number(v.score) || 0,
+        uid: entryUid,
+        score: isSelf ? runScore : Number(v.score) || 0,
         ts: typeof v.ts === "number" ? v.ts : 0,
       });
     });
+    // First-ever run on this board: no stored entry to substitute into, so
+    // add one. Its timestamp only affects tie-breaking against other
+    // players, never against this player (there's only one such entry).
+    if (!sawSelf) arr.push({ uid, score: runScore, ts: Date.now() });
     // Same ordering as `subscribeBoard`: highest score first, earliest
     // timestamp breaks ties, so the computed rank matches what the ranking
     // board actually displays.
     arr.sort((a, b) => b.score - a.score || a.ts - b.ts);
     const idx = arr.findIndex((e) => e.uid === uid);
     if (idx === -1) return null;
-    return { rank: idx + 1, total: arr.length };
+    const aboveDiff = idx > 0 ? Math.max(0, arr[idx - 1].score - runScore) : null;
+    return { rank: idx + 1, total: arr.length, aboveDiff };
   } catch {
     return null;
   }
