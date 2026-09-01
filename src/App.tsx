@@ -271,12 +271,17 @@ export default function App() {
         >
           LITE {lightweight ? "ON" : "OFF"}
         </button>
+        {/* Displayed as "LITE+" -- the previous "ULTRA" label didn't read
+            as a lightweight/performance setting at a glance, easy to
+            mistake for some unrelated difficulty/bonus mode. Internal
+            state/prop name (`ultra`) and the `.ultra-mode` CSS class are
+            unchanged; only the on-screen text differs from here down. */}
         <button
           onClick={toggleUltra}
-          title="スーパー軽量モード（演出をほぼ全カット）"
+          title="さらに軽量化（演出をほぼ全カット）"
           className="clip-chip border border-white/25 bg-black/65 px-3 py-2 font-mono2 text-[10px] tracking-[0.2em] text-white/70 backdrop-blur transition-colors hover:border-white/45 hover:text-white"
         >
-          ULTRA {ultra ? "ON" : "OFF"}
+          LITE+ {ultra ? "ON" : "OFF"}
         </button>
       </div>
     </div>
