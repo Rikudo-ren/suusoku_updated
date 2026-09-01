@@ -4,6 +4,7 @@ import { DIFF_INFO, MODE_INFO } from "../lib/problems";
 import type { GameStats } from "./GameScreen";
 import { setMusicMode, sfxNewRecord, sfxRank, sfxResultHit, sfxSelect, sfxUI, startMusic } from "../lib/audio";
 import { claimName, fetchMyRank, loadPlayerName, submitScore } from "../lib/ranking";
+import ShareResultPanel from "./ShareResultPanel";
 
 const RANKS: { min: number; label: string; color: string; title: string }[] = [
   { min: 90, label: "SS", color: "#ffe45e", title: "TRANSCENDENT CALCULATOR" },
@@ -497,6 +498,19 @@ export default function ResultScreen({
                 >
                   🏆 RANKING
                 </button>
+              </div>
+            )}
+
+            {stage >= 5 && (
+              <div className="rise-fade flex w-full justify-center">
+                <ShareResultPanel
+                  stats={stats}
+                  isBest={isBest}
+                  prevBest={prevBest}
+                  bestDiff={bestDiff}
+                  rank={rank}
+                  rankInfo={rankInfo}
+                />
               </div>
             )}
           </div>
