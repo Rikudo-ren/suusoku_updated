@@ -4,16 +4,8 @@ import { DIFF_INFO, MODE_INFO } from "../lib/problems";
 import type { GameStats } from "./GameScreen";
 import { setMusicMode, sfxNewRecord, sfxRank, sfxResultHit, sfxSelect, sfxUI, startMusic } from "../lib/audio";
 import { claimName, fetchMyRank, loadPlayerName, submitScore } from "../lib/ranking";
+import { getRank } from "../lib/ranks";
 import ShareResultPanel from "./ShareResultPanel";
-
-const RANKS: { min: number; label: string; color: string; title: string }[] = [
-  { min: 90, label: "SS", color: "#ffe45e", title: "TRANSCENDENT CALCULATOR" },
-  { min: 70, label: "S", color: "#ff2bd1", title: "OVERCLOCKED MIND" },
-  { min: 50, label: "A", color: "#22e4ff", title: "ELITE OPERATOR" },
-  { min: 32, label: "B", color: "#3ef2a1", title: "STABLE PROCESSOR" },
-  { min: 18, label: "C", color: "#9aa7c7", title: "BOOT SEQUENCE OK" },
-  { min: 0, label: "D", color: "#7c8598", title: "RECALIBRATION NEEDED" },
-];
 
 function useCountUp(target: number, run: boolean, dur = 900) {
   const [v, setV] = useState(0);
@@ -54,7 +46,7 @@ export default function ResultScreen({
 }) {
   const di = DIFF_INFO[stats.difficulty];
   const mi = MODE_INFO[stats.mode];
-  const rank = useMemo(() => RANKS.find((r) => stats.score >= r.min) ?? RANKS[RANKS.length - 1], [stats.score]);
+  const rank = useMemo(() => getRank(stats.score), [stats.score]);
   // How this run compares to the personal best going into it. When isBest
   // is true this is the improvement margin ("+42"); otherwise it's how far
   // short of the record this run fell (<= 0, "±0" on an exact tie).
