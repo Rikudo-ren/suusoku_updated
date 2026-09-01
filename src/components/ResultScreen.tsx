@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Backdrop from "./Backdrop";
 import { DIFF_INFO, MODE_INFO } from "../lib/problems";
 import type { GameStats } from "./GameScreen";
-import { setMusicMode, sfxRank, sfxResultHit, sfxSelect, startMusic } from "../lib/audio";
+import { setMusicMode, sfxRank, sfxResultHit, sfxSelect, sfxUI, startMusic } from "../lib/audio";
+import { claimName, fetchMyRank, loadPlayerName, submitScore } from "../lib/ranking";
 
 const RANKS: { min: number; label: string; color: string; title: string }[] = [
   { min: 90, label: "SS", color: "#ffe45e", title: "TRANSCENDENT CALCULATOR" },
@@ -54,6 +55,64 @@ export default function ResultScreen({
   const [stage, setStage] = useState(0); // 0 timeup, 1 panel, 2 rows, 3 score, 4 rank, 5 buttons
   const timers = useRef<number[]>([]);
 
+  // Leaderboard placement for this run, e.g. "12位にランクイン！". Submitting
+  // the score and then looking up where it landed both happen here (rather
+  // than in App.tsx) so the two stay in order: we must wait for the submit
+  // to finish writing before asking the board where we rank, or we'd read a
+  // stale position.
+  const [rankInfo, setRankInfo] = useState<{ rank: number; total: number } | null>(null);
+  const [rankPending, setRankPending] = useState(false);
+
+  useEffect(() => {
+    if (stats.score <= 0) return;
+    let cancelled = false;
+    setRankPending(true);
+    submitScore(stats.mode, stats.difficulty, {
+      score: stats.score,
+      solved: stats.solved,
+      misses: stats.misses,
+      maxCombo: stats.maxCombo,
+    })
+      .then(() => fetchMyRank(stats.mode, stats.difficulty))
+      .then((r) => {
+        if (!cancelled) setRankInfo(r);
+      })
+      .catch(() => {
+        /* leaderboard is best-effort; the result screen never blocks on it */
+      })
+      .finally(() => {
+        if (!cancelled) setRankPending(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // Run once per mount -- `stats` is fixed for the lifetime of this screen.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Pilot name, editable right here so registering for the ranking doesn't
+  // require a trip to the separate ranking screen.
+  const [name, setName] = useState(() => loadPlayerName());
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState(name);
+  const [nameError, setNameError] = useState<string | null>(null);
+  const [nameSaving, setNameSaving] = useState(false);
+
+  const commitName = async () => {
+    if (nameSaving) return;
+    setNameSaving(true);
+    setNameError(null);
+    const res = await claimName(nameDraft);
+    setNameSaving(false);
+    if (res.ok) {
+      setName(res.name);
+      setNameDraft(res.name);
+      setEditingName(false);
+    } else {
+      setNameError(res.reason === "taken" ? "その名前は使用済みです" : "名前を入力してください");
+    }
+  };
+
   useEffect(() => {
     const add = (fn: () => void, ms: number) => timers.current.push(window.setTimeout(fn, ms));
     add(() => setStage(1), 1500);
@@ -82,6 +141,9 @@ export default function ResultScreen({
 
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
+      // While the pilot-name field is focused, Enter/Escape should only
+      // save/cancel the name -- not also retry or jump to the title screen.
+      if (editingName) return;
       if (stage < 5) {
         skip();
         return;
@@ -96,7 +158,7 @@ export default function ResultScreen({
     };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
-  }, [stage, onRetry, onTitle]);
+  }, [stage, onRetry, onTitle, editingName]);
 
   const scoreVal = useCountUp(stats.score, stage >= 3, 1000);
   const solvedVal = useCountUp(stats.solved, stage >= 2, 700);
@@ -252,6 +314,85 @@ export default function ResultScreen({
                       style={{ color: rank.color, animationDelay: "0.5s" }}
                     >
                       {rank.title}
+                    </div>
+
+                    {/* Placement on the global leaderboard + a one-click way
+                        to set/change the pilot name, right where the eye
+                        lands right after the grade reveal -- this is the
+                        moment the player wants to know "did I make the
+                        ranking?", and renaming here means they don't have to
+                        detour through the separate ranking screen to do it. */}
+                    <div
+                      className="rise-fade clip-panel mt-4 w-full max-w-[280px] border border-fuchsia-400/30 bg-fuchsia-500/10 px-4 py-3 text-center"
+                      style={{ animationDelay: "0.65s" }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {rankInfo ? (
+                        <>
+                          <div className="font-mono2 text-[9px] tracking-[0.3em] text-fuchsia-200/70">GLOBAL RANKING</div>
+                          <div className="mt-1 flex items-baseline justify-center gap-1">
+                            <span className="font-display text-3xl font-black leading-none text-white neon" style={{ color: "#ff2bd1" }}>
+                              {rankInfo.rank}
+                            </span>
+                            <span className="font-display text-sm font-black text-white/80">位</span>
+                            <span className="ml-1 font-mono2 text-[10px] text-white/40">/ {rankInfo.total}人中</span>
+                          </div>
+                          <div className="font-mono2 text-[10px] tracking-[0.25em] text-fuchsia-200">にランクイン！</div>
+                        </>
+                      ) : rankPending ? (
+                        <div className="pulse-soft py-1 font-mono2 text-[10px] tracking-widest text-white/40">集計中…</div>
+                      ) : null}
+
+                      <div className={`border-t border-white/10 pt-2.5 ${rankInfo || rankPending ? "mt-3" : ""}`}>
+                        <div className="mb-1 font-mono2 text-[9px] tracking-[0.3em] text-cyan-300/60">PILOT NAME</div>
+                        {editingName ? (
+                          <div className="flex items-center gap-1.5">
+                            <div className="flex min-w-0 flex-1 flex-col">
+                              <input
+                                autoFocus
+                                value={nameDraft}
+                                maxLength={12}
+                                onChange={(e) => {
+                                  setNameDraft(e.target.value);
+                                  if (nameError) setNameError(null);
+                                }}
+                                onKeyDown={(e) => {
+                                  e.stopPropagation();
+                                  if (e.key === "Enter") commitName();
+                                  if (e.key === "Escape") {
+                                    setNameDraft(name);
+                                    setNameError(null);
+                                    setEditingName(false);
+                                  }
+                                }}
+                                className="w-full border border-cyan-400/40 bg-black/60 px-2 py-1 text-center font-display text-xs font-bold tracking-wider text-white outline-none"
+                              />
+                              {nameError && (
+                                <span className="mt-0.5 font-mono2 text-[9px] tracking-wider text-rose-400">{nameError}</span>
+                              )}
+                            </div>
+                            <button
+                              onClick={commitName}
+                              disabled={nameSaving}
+                              className="clip-chip shrink-0 bg-cyan-400/80 px-2.5 py-1 font-display text-[10px] font-black tracking-wider text-black disabled:opacity-50"
+                            >
+                              {nameSaving ? "..." : "SAVE"}
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => {
+                              sfxUI();
+                              setNameDraft(name);
+                              setEditingName(true);
+                            }}
+                            className="font-display text-sm font-black tracking-wider text-white underline decoration-cyan-400/50 decoration-dashed underline-offset-4 hover:text-cyan-200"
+                            title="クリックして名前を変更"
+                          >
+                            {name} <span className="ml-1 font-mono2 text-[9px] text-white/30">EDIT</span>
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 )}
