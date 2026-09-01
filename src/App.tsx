@@ -4,7 +4,7 @@ import GameScreen, { type GameStats } from "./components/GameScreen";
 import ResultScreen from "./components/ResultScreen";
 import RankingScreen from "./components/RankingScreen";
 import { type Difficulty, type ProblemMode } from "./lib/problems";
-import { initPlayerIdentity, submitScore } from "./lib/ranking";
+import { initPlayerIdentity } from "./lib/ranking";
 import {
   initAudio,
   isMusicMuted,
@@ -129,14 +129,9 @@ export default function App() {
     } else {
       setIsBest(false);
     }
-    submitScore(s.mode, s.difficulty, {
-      score: s.score,
-      solved: s.solved,
-      misses: s.misses,
-      maxCombo: s.maxCombo,
-    }).catch(() => {
-      /* leaderboard is best-effort; never block the result screen on it */
-    });
+    // Leaderboard submission (and finding this run's rank for the "X位に
+    // ランクイン" callout) now happens inside ResultScreen itself, right
+    // after it mounts -- see the effect there.
     setScreen("result");
   };
 
