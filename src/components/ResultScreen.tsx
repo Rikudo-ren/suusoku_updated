@@ -131,23 +131,18 @@ export default function ResultScreen({
     return () => timers.current.forEach(clearTimeout);
   }, []);
 
-  const skip = () => {
-    timers.current.forEach(clearTimeout);
-    timers.current = [];
-    setStage(5);
-    startMusic("result");
-    setMusicMode("result");
-  };
-
+  // Deliberately no "tap/press anything to skip the reveal" shortcut here
+  // anymore: it let a player who kept tapping through the reveal land an
+  // accidental extra tap on RETRY the instant it appeared (since it renders
+  // right under the finger/cursor position). The reveal always plays out in
+  // full now, and RETRY/TITLE/RANKING only appear -- and only become
+  // clickable -- once stage 5 arrives on its own.
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
       // While the pilot-name field is focused, Enter/Escape should only
       // save/cancel the name -- not also retry or jump to the title screen.
       if (editingName) return;
-      if (stage < 5) {
-        skip();
-        return;
-      }
+      if (stage < 5) return;
       if (e.key === "Enter" || e.key.toLowerCase() === "r") {
         sfxSelect();
         onRetry();
@@ -178,7 +173,7 @@ export default function ResultScreen({
   const maxKind = Math.max(1, ...kinds.map((x) => x.v));
 
   return (
-    <div className="relative h-full w-full overflow-hidden" onClick={() => stage < 5 && skip()}>
+    <div className="relative h-full w-full overflow-hidden">
       <Backdrop accent={rank.color} intensity={0.8} lightweight={lightweight} ultra={ultra} />
 
       {stage === 0 && (
@@ -435,10 +430,6 @@ export default function ResultScreen({
                   🏆 RANKING
                 </button>
               </div>
-            )}
-
-            {stage < 5 && (
-              <div className="mt-6 text-center font-mono2 text-[10px] tracking-[0.3em] text-white/30">CLICK / ANY KEY TO SKIP</div>
             )}
           </div>
         )}
