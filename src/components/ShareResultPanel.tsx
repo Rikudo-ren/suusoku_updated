@@ -25,11 +25,14 @@ type Props = {
   bestDiff: number;
   rank: { label: string; color: string; title: string };
   rankInfo: { rank: number; total: number } | null;
+  /** The pilot name shown/edited elsewhere on the result screen. Passed in
+   * (rather than read once) so that renaming there updates the card too. */
+  name: string;
 };
 
 const STATUS_MS = 2800;
 
-export default function ShareResultPanel({ stats, isBest, prevBest, bestDiff, rank, rankInfo }: Props) {
+export default function ShareResultPanel({ stats, isBest, prevBest, bestDiff, rank, rankInfo, name }: Props) {
   const [lang, setLang] = useState<ShareLang>("ja");
   const [blob, setBlob] = useState<Blob | null>(null);
   const [imgUrl, setImgUrl] = useState<string | null>(null);
@@ -40,13 +43,25 @@ export default function ShareResultPanel({ stats, isBest, prevBest, bestDiff, ra
   const statusTimer = useRef<number | null>(null);
   const imgUrlRef = useRef<string | null>(null);
 
-  // Everything the caption/card builders need, resolved once per run+reveal
-  // (rankInfo/isBest/prevBest never change after mount) so every button
-  // below describes the exact same result regardless of click order.
+  // Everything the caption/card builders need. Rebuilt whenever the pilot
+  // name changes (editable just above this panel on the result screen) so
+  // renaming there and the card/caption here never fall out of sync;
+  // rankInfo/isBest/prevBest are fixed for the lifetime of this screen.
   const shareStats = useMemo(
-    () => buildShareStats({ stats, rankLabel: rank.label, rankTitle: rank.title, rankColor: rank.color, isNewRecord: isBest, prevBest, bestDiff, rankInfo }),
+    () =>
+      buildShareStats({
+        stats,
+        playerName: name,
+        rankLabel: rank.label,
+        rankTitle: rank.title,
+        rankColor: rank.color,
+        isNewRecord: isBest,
+        prevBest,
+        bestDiff,
+        rankInfo,
+      }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
+    [name],
   );
 
   // Whether this device's share sheet can actually take a file attachment --
