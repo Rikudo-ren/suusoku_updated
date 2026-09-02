@@ -12,7 +12,6 @@ import { renderShareCard } from "../lib/shareCard";
 import {
   copyImageAndText,
   copyText,
-  downloadBlob,
   isWebShareAvailable,
   openTweetIntent,
   webShare,
@@ -31,6 +30,13 @@ type Props = {
 };
 
 const STATUS_MS = 2800;
+// X's popup steals focus the instant it opens, so a glance-back toast needs
+// to survive longer than the default -- and needs a beat to actually be
+// read *before* that happens, since we control nothing inside X's own
+// compose window once the player lands there.
+const STATUS_MS_X = 5200;
+const PRE_REDIRECT_DELAY_MS = 900;
+const delay = (ms: number) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
 
 export default function ShareResultPanel({ stats, isBest, prevBest, bestDiff, rank, rankInfo, name }: Props) {
   const [lang, setLang] = useState<ShareLang>("ja");
@@ -110,10 +116,10 @@ export default function ShareResultPanel({ stats, isBest, prevBest, bestDiff, ra
     [],
   );
 
-  const showStatus = (msg: string) => {
+  const showStatus = (msg: string, ms: number = STATUS_MS) => {
     setStatus(msg);
     if (statusTimer.current) window.clearTimeout(statusTimer.current);
-    statusTimer.current = window.setTimeout(() => setStatus(null), STATUS_MS);
+    statusTimer.current = window.setTimeout(() => setStatus(null), ms);
   };
 
   const t = (ja: string, en: string) => (lang === "ja" ? ja : en);
@@ -131,12 +137,20 @@ export default function ShareResultPanel({ stats, isBest, prevBest, bestDiff, ra
     // copy first, while we're still inside the click's focused context,
     // keeps the clipboard write from silently failing.
     const outcome = await copyImageAndText(blob, buildFullCaption(shareStats, lang), `suusoku-result-${lang}.png`);
-    openTweetIntent(buildTweetIntentUrl(shareStats, lang));
+    // Show the "paste it" notice and let it actually sit on screen for a
+    // beat *before* opening the X popup. The popup takes focus immediately
+    // once it opens, so a toast shown only after that point is easy to miss
+    // entirely -- it needs to be read before the jump, not after.
     if (outcome.kind === "copied-image-and-text") {
-      showStatus(t("画像をコピーしました。投稿画面に貼り付け(Ctrl+V)してください", "Image copied — paste it (Ctrl+V) into the post"));
+      showStatus(
+        t("画像をコピーしました。Xの投稿画面が開いたら貼り付け(Ctrl+V)してください", "Image copied — paste it (Ctrl+V) once the X composer opens"),
+        STATUS_MS_X,
+      );
     } else {
-      showStatus(t("画像を保存しました。投稿に添付してください", "Image saved — attach it to your post"));
+      showStatus(t("画像を保存しました。投稿に添付してください", "Image saved — attach it to your post"), STATUS_MS_X);
     }
+    await delay(PRE_REDIRECT_DELAY_MS);
+    openTweetIntent(buildTweetIntentUrl(shareStats, lang));
   };
 
   const handleDiscord = async () => {
@@ -161,14 +175,20 @@ export default function ShareResultPanel({ stats, isBest, prevBest, bestDiff, ra
     if (outcome.kind === "unsupported") showStatus(t("この端末では利用できません", "Not available on this device"));
   };
 
-  const handleSaveImage = () => {
+  const handleCopyImage = async () => {
     sfxUI();
     if (!blob) {
       showStatus(t("画像の準備ができていません", "Image isn't ready yet"));
       return;
     }
-    downloadBlob(blob, `suusoku-result-${lang}.png`);
-    showStatus(t("画像を保存しました", "Image saved"));
+    // Copy first, same as X/Discord -- only falls back to a file download
+    // when this browser can't put an image on the clipboard at all.
+    const outcome = await copyImageAndText(blob, buildFullCaption(shareStats, lang), `suusoku-result-${lang}.png`);
+    if (outcome.kind === "copied-image-and-text") {
+      showStatus(t("画像をコピーしました。好きな場所に貼り付け(Ctrl+V)できます", "Image copied — paste it (Ctrl+V) anywhere"));
+    } else {
+      showStatus(t("この端末は画像コピーに非対応のため保存しました", "Clipboard image copy isn't supported here — saved instead"));
+    }
   };
 
   const handleCopyText = async () => {
@@ -245,8 +265,8 @@ export default function ShareResultPanel({ stats, isBest, prevBest, bestDiff, ra
             text: "text-cyan-200",
           })}
         {actionBtn({
-          onClick: handleSaveImage,
-          label: t("画像保存", "SAVE"),
+          onClick: handleCopyImage,
+          label: t("画像コピー", "COPY IMG"),
           border: "border-white/20",
           text: "text-white/70",
           disabled: busy,
