@@ -5,6 +5,7 @@ import ResultScreen from "./components/ResultScreen";
 import RankingScreen from "./components/RankingScreen";
 import { type Difficulty, type ProblemMode } from "./lib/problems";
 import { initPlayerIdentity } from "./lib/ranking";
+import { recordVisit } from "./lib/visits";
 import {
   initAudio,
   isMusicMuted,
@@ -74,6 +75,9 @@ export default function App() {
     initPlayerIdentity().catch(() => {
       /* best effort; the game still works fully offline-first with the local name */
     });
+    // Tick the site-wide access counter. Runs once per page load -- a
+    // returning visitor reloading the page counts again, on purpose.
+    recordVisit();
   }, []);
 
   useEffect(() => {
