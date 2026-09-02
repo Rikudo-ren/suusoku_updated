@@ -4,6 +4,7 @@ import { DIFF_INFO, MAX_PAUSES, MODE_INFO, MODE_ORDER, TITLE_DIFFS, type Difficu
 import { sfxSelect, sfxStart, sfxUI } from "../lib/audio";
 import { claimName, loadPlayerName } from "../lib/ranking";
 import { RANKS } from "../lib/ranks";
+import { subscribeVisitCount } from "../lib/visits";
 
 type Props = {
   onStart: (d: Difficulty, m: ProblemMode) => void;
@@ -29,6 +30,9 @@ export default function TitleScreen({ onStart, onRanking, best, audioReady, ligh
   const [nameError, setNameError] = useState<string | null>(null);
   const [nameSaving, setNameSaving] = useState(false);
   const [showRankTable, setShowRankTable] = useState(false);
+  const [visitCount, setVisitCount] = useState<number | null>(null);
+
+  useEffect(() => subscribeVisitCount(setVisitCount), []);
 
   const commitName = async () => {
     if (nameSaving) return;
@@ -396,6 +400,11 @@ export default function TitleScreen({ onStart, onRanking, best, audioReady, ligh
         <div className="mt-2 font-mono2 text-[10px] tracking-[0.3em] text-white/30">
           [ CLICK ] SELECT&nbsp;&nbsp;/&nbsp;&nbsp;[ ARROWS ] MOVE&nbsp;&nbsp;/&nbsp;&nbsp;[ ENTER ] START
         </div>
+        {visitCount !== null && (
+          <div className="mt-1 font-mono2 text-[9px] tracking-[0.25em] text-white/25">
+            TOTAL ACCESS // {String(visitCount).padStart(6, "0")}
+          </div>
+        )}
       </div>
 
       {/* RANK TABLE MODAL -- shows the score->rank breakdown (the same table
