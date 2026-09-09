@@ -77,11 +77,28 @@
   </head>
   <body>
     <div id="root"></div>
+    <div id="suusoku-adsense" aria-label="Advertisements">
+      <ins class="adsbygoogle"
+           style="display:block"
+           data-ad-client="ca-pub-7100685462697356"
+           data-ad-slot="2176563542"
+           data-ad-format="auto"
+           data-full-width-responsive="true"></ins>
+    </div>
     <noscript>
       <p>
         数速バトル(NUMERIC VELOCITY)は、暗算・計算スピードを競う無料のブラウザ計算ゲームです。加減算・乗除算・素因数分解のモードと難易度を選んで、頭の回転力を鍛えましょう。この体験にはJavaScriptが必要です。ブラウザの設定でJavaScriptを有効にしてください。
       </p>
     </noscript>
     <script type="module" src="/src/main.tsx"></script>
+    <script>
+      window.addEventListener('load', function () {
+        try {
+          (window.adsbygoogle = window.adsbygoogle || []).push({});
+        } catch (e) {
+          console.debug('AdSense not ready yet', e);
+        }
+      });
+    </script>
   </body>
 </html>
