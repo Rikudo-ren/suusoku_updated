@@ -16,4 +16,9 @@ export default defineConfig({
       "@": path.resolve(__dirname, "src"),
     },
   },
+  server: {
+    // Allow the Arena live-preview proxy host (served under *.e2b.app) to
+    // reach the dev server. Dev-only; has no effect on the production build.
+    allowedHosts: [".e2b.app"],
+  },
 });
