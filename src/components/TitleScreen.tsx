@@ -133,10 +133,10 @@ export default function TitleScreen({ onStart, onRanking, best, audioReady, ligh
 
         <div className="mt-3 flex flex-wrap items-center justify-center gap-x-5 gap-y-1 font-mono2 text-[9px] tracking-[0.18em] text-white/25"><span>PAUSE × {MAX_PAUSES}</span><span>BEST // {bestKey(selDiff, selMode) in best ? best[bestKey(selDiff, selMode)] : "--"}</span><span>{visitCount !== null ? `VISITS // ${visitCount}` : "VISITS // --"}</span></div>
 
-        <div className="mt-5 mb-1 w-full max-w-3xl px-1">
-          <div className="mx-auto max-w-xl overflow-hidden rounded-sm border border-cyan-300/10 bg-black/20 p-1">
+        <div className="mt-5 mb-1 w-full max-w-3xl px-0">
+          <div className="mx-auto w-full overflow-hidden rounded-sm border border-cyan-300/10 bg-black/20 p-1">
             <div className="mb-1 text-center font-mono2 text-[8px] tracking-[0.22em] text-white/20">ADVERTISEMENT</div>
-            <ins className="adsbygoogle" style={{ display: "block", minHeight: "90px" }} data-ad-client="ca-pub-7100685462697356" data-ad-slot="2176563542" data-ad-format="auto" data-full-width-responsive="true" />
+            <ins className="adsbygoogle" style={{ display: "block" }} data-ad-client="ca-pub-7100685462697356" data-ad-slot="2176563542" data-ad-format="horizontal" data-full-width-responsive="true" />
           </div>
         </div>
       </div>
