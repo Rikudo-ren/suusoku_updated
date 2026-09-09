@@ -117,7 +117,7 @@ export default function TitleScreen({ onStart, onRanking, best, audioReady, ligh
         <div className="mt-3 w-full max-w-3xl">
           <div className="mb-1.5 flex items-center gap-2 font-mono2 text-[10px] tracking-[0.3em]" style={{ color: focus === "mode" ? mi.color : "rgba(103,232,249,0.7)" }}><span className="h-1.5 w-1.5 rotate-45" style={{ background: mi.color }} />01 // 分野を選択<span className="ml-2 text-white/30">クリックした枠が選択中</span></div>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            {MODE_ORDER.map((m) => { const mInfo = MODE_INFO[m]; const selected = selMode === m; const focused = focus === "mode" && selected; return (<button key={m} onClick={() => { setSelMode(m); setFocus("mode"); sfxSelect(); }} className="clip-btn relative overflow-hidden px-2 py-3 text-left transition-transform duration-150 hover:scale-[1.02] active:scale-95 md:px-3 md:py-4" style={{ background: selected ? `linear-gradient(135deg, ${mInfo.accent}0.32), ${mInfo.accent}0.07))` : "rgba(255,255,255,0.025)", border: `1px solid ${selected ? mInfo.color : "rgba(255,255,255,0.14)"}`, boxShadow: selected ? `0 0 30px ${mInfo.accent}0.38), inset 0 0 30px ${mInfo.accent}0.13)` : "none", opacity: selected ? 1 : 0.7 }}><div className="font-mono2 text-[9px] tracking-[0.25em]" style={{ color: mInfo.color, opacity: 0.82 }}>{mInfo.sub}</div><div className="font-display text-base font-black leading-none md:text-xl" style={{ color: selected ? "#fff" : mInfo.color, textShadow: selected ? `0 0 16px ${mInfo.color}` : "none" }}>{mInfo.label}</div>{selected && <><div className="absolute inset-x-0 bottom-0 h-1" style={{ background: `linear-gradient(90deg, transparent, ${mInfo.color}, transparent)` }} /><div className="absolute right-2 top-2 font-mono2 text-[9px] tracking-widest" style={{ color: mInfo.color }}>SELECTED</div></>}{focused && <span className="absolute inset-0 border border-white/45" />}</button>); })}
+            {MODE_ORDER.map((m) => { const mInfo = MODE_INFO[m]; const selected = selMode === m; const focused = focus === "mode" && selected; return (<button key={m} onClick={() => { setSelMode(m); setFocus("mode"); sfxSelect(); }} className="clip-btn relative overflow-hidden px-2 py-3 text-left transition-transform duration-150 hover:scale-[1.02] active:scale-95 md:px-3 md:py-4" style={{ background: selected ? `linear-gradient(135deg, ${mInfo.accent}0.32), ${mInfo.accent}0.07))` : "rgba(255,255,255,0.025)", border: `1px solid ${selected ? mInfo.color : "rgba(255,255,255,0.14)"}`, boxShadow: selected ? `0 0 30px ${mInfo.accent}0.38), inset 0 0 30px ${mInfo.accent}0.13)` : "none", opacity: selected ? 1 : 0.7 }}><div className="whitespace-nowrap font-mono2 text-[9px] tracking-[0.25em]" style={{ color: mInfo.color, opacity: 0.82 }}>{mInfo.sub}</div><div className="font-display text-base font-black leading-none md:text-xl" style={{ color: selected ? "#fff" : mInfo.color, textShadow: selected ? `0 0 16px ${mInfo.color}` : "none" }}>{mInfo.label}</div>{selected && <><div className="absolute inset-x-0 bottom-0 h-1" style={{ background: `linear-gradient(90deg, transparent, ${mInfo.color}, transparent)` }} /><div className="absolute right-2 top-2 font-mono2 text-[9px] tracking-widest" style={{ color: mInfo.color }}>SELECTED</div></>}{focused && <span className="absolute inset-0 border border-white/45" />}</button>); })}
           </div>
           <div className="mt-1.5 h-4 font-ui text-[11px] tracking-wider text-white/55 md:text-xs">{mi.desc}</div>
         </div>
@@ -125,7 +125,29 @@ export default function TitleScreen({ onStart, onRanking, best, audioReady, ligh
         <div className="mt-3 w-full max-w-3xl">
           <div className="mb-1.5 flex items-center gap-2 font-mono2 text-[10px] tracking-[0.3em]" style={{ color: focus === "diff" ? di.color : "rgba(103,232,249,0.7)" }}><span className="h-1.5 w-1.5 rotate-45" style={{ background: di.color }} />02 // 難易度を選択</div>
           <div className="grid grid-cols-3 gap-2 md:gap-3">
-            {DIFF_ORDER.map((d) => { const dInfo = DIFF_INFO[d]; const selected = selDiff === d; const focused = focus === "diff" && selected; return (<button key={d} onClick={() => { setSelDiff(d); setFocus("diff"); sfxSelect(); }} className="clip-btn relative overflow-hidden px-2 py-3 text-left transition-transform duration-150 hover:scale-[1.02] active:scale-95 md:px-4 md:py-4" style={{ background: selected ? `linear-gradient(135deg, ${dInfo.accent}0.28), ${dInfo.accent}0.06))` : "rgba(255,255,255,0.025)", border: `1px solid ${selected ? dInfo.color : "rgba(255,255,255,0.14)"}`, boxShadow: selected ? `0 0 28px ${dInfo.accent}0.36), inset 0 0 28px ${dInfo.accent}0.12)` : "none", opacity: selected ? 1 : 0.7 }}><div className="font-mono2 text-[9px] tracking-[0.25em]" style={{ color: dInfo.color, opacity: 0.82 }}>{dInfo.sub}</div><div className="flex flex-col items-start gap-0.5 md:flex-row md:items-baseline md:gap-2"><div className="font-display text-lg font-black leading-none md:text-2xl" style={{ color: selected ? "#fff" : dInfo.color, textShadow: selected ? `0 0 16px ${dInfo.color}` : "none" }}>{dInfo.label}</div><div className="font-ui text-[10px] tracking-wider md:text-xs" style={{ color: selected ? "rgba(255,255,255,.72)" : "rgba(255,255,255,.45)" }}>{dInfo.desc}</div></div>{focused && <span className="absolute inset-0 border border-white/45" />}</button>); })}
+            {DIFF_ORDER.map((d) => {
+              const dInfo = DIFF_INFO[d];
+              const selected = selDiff === d;
+              const focused = focus === "diff" && selected;
+              return (
+                <button
+                  key={d}
+                  onClick={() => { setSelDiff(d); setFocus("diff"); sfxSelect(); }}
+                  className="clip-btn relative flex flex-col overflow-hidden px-2 py-3 text-left transition-transform duration-150 hover:scale-[1.02] active:scale-95 md:px-4 md:py-4"
+                  style={{
+                    background: selected ? `linear-gradient(135deg, ${dInfo.accent}0.28), ${dInfo.accent}0.06))` : "rgba(255,255,255,0.025)",
+                    border: `1px solid ${selected ? dInfo.color : "rgba(255,255,255,0.14)"}`,
+                    boxShadow: selected ? `0 0 28px ${dInfo.accent}0.36), inset 0 0 28px ${dInfo.accent}0.12)` : "none",
+                    opacity: selected ? 1 : 0.7,
+                  }}
+                >
+                  <div className="flex h-3.5 items-center whitespace-nowrap font-mono2 text-[8px] tracking-[0.12em] md:h-4 md:text-[9px] md:tracking-[0.25em]" style={{ color: dInfo.color, opacity: 0.82 }}>{dInfo.sub}</div>
+                  <div className="mt-1 font-display text-lg font-black leading-none md:mt-1.5 md:text-2xl" style={{ color: selected ? "#fff" : dInfo.color, textShadow: selected ? `0 0 16px ${dInfo.color}` : "none" }}>{dInfo.label}</div>
+                  <div className="mt-1 font-ui text-[10px] leading-snug tracking-wider md:mt-1.5 md:text-xs" style={{ color: selected ? "rgba(255,255,255,.72)" : "rgba(255,255,255,.45)" }}>{dInfo.desc}</div>
+                  {focused && <span className="absolute inset-0 border border-white/45" />}
+                </button>
+              );
+            })}
           </div>
         </div>
 
@@ -133,10 +155,15 @@ export default function TitleScreen({ onStart, onRanking, best, audioReady, ligh
 
         <div className="mt-3 flex flex-wrap items-center justify-center gap-x-5 gap-y-1 font-mono2 text-[9px] tracking-[0.18em] text-white/25"><span>PAUSE × {MAX_PAUSES}</span><span>BEST // {bestKey(selDiff, selMode) in best ? best[bestKey(selDiff, selMode)] : "--"}</span><span>{visitCount !== null ? `VISITS // ${visitCount}` : "VISITS // --"}</span></div>
 
-        <div className="mt-5 mb-1 w-full max-w-3xl px-0">
-          <div className="mx-auto w-full overflow-hidden rounded-sm border border-cyan-300/10 bg-black/20 p-1">
-            <div className="mb-1 text-center font-mono2 text-[8px] tracking-[0.22em] text-white/20">ADVERTISEMENT</div>
-            <ins className="adsbygoogle" style={{ display: "block" }} data-ad-client="ca-pub-7100685462697356" data-ad-slot="2176563542" data-ad-format="horizontal" data-full-width-responsive="true" />
+        <div className="mt-5 mb-1 w-full max-w-3xl">
+          <div className="mx-auto w-full max-w-[728px] overflow-hidden rounded-sm border border-cyan-300/10 bg-black/20">
+            <div className="flex items-center gap-2 border-b border-cyan-300/10 px-2.5 py-1.5">
+              <span className="h-1 w-1 shrink-0 rotate-45 bg-cyan-300/40" />
+              <span className="font-mono2 text-[8px] tracking-[0.25em] text-white/30">ADVERTISEMENT</span>
+            </div>
+            <div className="flex min-h-[100px] w-full items-center justify-center md:min-h-[90px]">
+              <ins className="adsbygoogle" style={{ display: "block", width: "100%" }} data-ad-client="ca-pub-7100685462697356" data-ad-slot="2176563542" data-ad-format="horizontal" data-full-width-responsive="true" />
+            </div>
           </div>
         </div>
       </div>
