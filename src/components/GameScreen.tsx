@@ -189,7 +189,7 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
   // mode described in the comments above (mashing a digit, or alternating
   // digit/ENTER quickly).
   //
-  // The fix: mirror the three pieces of state that change during fast play
+  // The fix: mirror the pieces of state that change during fast play
   // (problem, input, factors) into refs that are written the instant a
   // change happens -- synchronously, in the same call that requests the
   // state update, not after React gets around to rendering. Any logic that
@@ -204,12 +204,28 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
     setProblem(value);
   };
 
-  const [input, setInput] = useState("");
+  // The typed value now lives ONLY here (plus the <input>'s own DOM value)
+  // -- deliberately NOT in React state. `updateInput` is called on every
+  // single keystroke, and when this was `useState` rendered into a
+  // controlled `value={input}`, each keystroke re-rendered the ENTIRE game
+  // screen (HUD, problem panel, fx layers, the works) on the main thread,
+  // right in the middle of the player's fastest tap bursts. That render
+  // work is exactly what rapid consecutive number taps were competing with,
+  // and why they felt late/dropped on phones even with pointerdown wired
+  // up correctly. But nothing on screen actually needs a React render when
+  // a digit changes -- the value is displayed in exactly one place (the
+  // <input> itself), so echo it straight into the DOM and skip React
+  // entirely: same trick the sub-second timer display uses. Game logic
+  // (submit, DEL) reads `inputValRef` and never trusted state anyway.
+  // Net effect: digit taps and DEL now cause ZERO React re-renders; the
+  // screen only re-renders on events that genuinely change the layout
+  // (correct answer, miss message, factor chip add/remove, timer tick).
   const inputValRef = useRef("");
   const updateInput = (next: string | ((v: string) => string)) => {
     const value = typeof next === "function" ? (next as (v: string) => string)(inputValRef.current) : next;
     inputValRef.current = value;
-    setInput(value);
+    const el = inputRef.current;
+    if (el && el.value !== value) el.value = value;
   };
 
   const [factors, setFactors] = useState<number[]>([]);
@@ -722,9 +738,15 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
         </div>
       )}
 
-      {/* GAME UI (desaturates when paused) */}
+      {/* GAME UI (desaturates when paused). Top/bottom padding honors the
+          device safe-area insets (needs viewport-fit=cover in index.html):
+          without it the bottom number-pad row sits inside the iPhone home-
+          indicator swipe zone (and Android gesture bar), where taps get
+          pre-empted by the OS gesture instead of reaching the button --
+          another way "bottom keys don't respond" happened on phones.
+          max() keeps exactly the old 0.75rem where no insets exist. */}
       <div
-        className="relative z-10 flex h-full w-full flex-col px-4 py-3 md:px-8 md:py-5"
+        className="relative z-10 flex h-full w-full flex-col px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-[max(0.75rem,env(safe-area-inset-top))] md:px-8 md:py-5"
         style={{
           filter: `saturate(${saturation})`,
           transform: `scale(${paused ? 0.99 : 1})`,
@@ -861,7 +883,7 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
         <div className="flex min-h-0 flex-1 flex-col items-center justify-center overflow-hidden py-2">
           <div
             key={problem.id}
-            className="slide-swap clip-panel relative w-full max-w-4xl border bg-black/55 px-5 py-6 backdrop-blur-md md:px-10 md:py-9"
+            className="slide-swap clip-panel relative w-full max-w-4xl border bg-black/55 px-5 py-6 md:px-10 md:py-9 md:backdrop-blur-md"
             style={{
               borderColor: danger ? "rgba(255,59,92,0.5)" : `${di.accent}0.45)`,
               boxShadow: `0 0 60px ${danger ? "rgba(255,59,92,0.18)" : `${di.accent}0.16)`}, inset 0 0 60px rgba(0,0,0,0.6)`,
@@ -913,44 +935,74 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
           </div>
         </div>
 
-        {/* ANSWER AREA -- fixed-height footer block, outside the flex-1
-            problem area above, so the number pad's position stays put
-            regardless of problem-box size (single-line expr vs factor
-            mode vs a long factor chip row). */}
+        {/* ANSWER AREA -- footer block glued to the bottom, outside the
+            flex-1 problem area above. Every child in here has a FIXED
+            height: nothing in this footer may ever grow or shrink, because
+            any change pushes the number pad up/down under the player's
+            finger mid-tap (the "keys keep moving / first digit shoved the
+            pad down" complaint). The flex-1 problem panel above absorbs all
+            screen-height differences instead. */}
         <div className="mx-auto w-full max-w-4xl shrink-0 pt-3 md:pt-5">
-          {problem.kind === "factor" && (
-            <div className="mb-3 flex flex-wrap items-center justify-center gap-2">
-              {factors.length === 0 && (
-                <span className="font-mono2 text-xs tracking-widest text-white/30">素数を1つずつ ENTER で追加</span>
-              )}
-              {factors.map((f, i) => (
-                <span key={`${f}-${i}`} className="flex items-center gap-2">
-                  {i > 0 && <span className="font-display text-lg text-cyan-300/60">×</span>}
-                  <span
-                    className="pop-in clip-chip px-3 py-1 font-display text-xl font-black text-white md:text-2xl"
-                    style={{ background: "rgba(34,228,255,0.16)", border: "1px solid rgba(34,228,255,0.6)", boxShadow: "0 0 18px rgba(34,228,255,0.3)" }}
-                  >
-                    {f}
+          {/* Factor chips. This row previously existed ONLY in factor mode
+              and was allowed to wrap: entering the first prime swapped the
+              one-line hint for taller chips (pad jumps down), each extra
+              prime could wrap the row onto another line (pad jumps down
+              again), and in random mode the whole row appeared/disappeared
+              between problems (pad jumps by the full row height). Now: the
+              row is ALWAYS rendered (empty in non-factor modes) at one
+              fixed height, wrapping is forbidden, and the "/ target" tail
+              is hidden on phones so a hard-mode 5-factor answer still fits
+              on one line -- the pad below never moves a pixel. */}
+          <div className="mb-2 h-8 overflow-hidden md:h-9">
+            {problem.kind === "factor" && (
+              <div className="flex h-full items-center justify-center gap-1 whitespace-nowrap md:gap-2">
+                {factors.length === 0 && (
+                  <span className="font-mono2 text-xs tracking-widest text-white/30">素数を1つずつ ENTER で追加</span>
+                )}
+                {factors.map((f, i) => (
+                  <span key={`${f}-${i}`} className="flex items-center gap-1 md:gap-2">
+                    {i > 0 && <span className="font-display text-sm text-cyan-300/60 md:text-lg">×</span>}
+                    <span
+                      className="pop-in clip-chip px-2 py-0.5 font-display text-sm font-black leading-none text-white md:px-3 md:py-1 md:text-2xl"
+                      style={{ background: "rgba(34,228,255,0.16)", border: "1px solid rgba(34,228,255,0.6)", boxShadow: "0 0 18px rgba(34,228,255,0.3)" }}
+                    >
+                      {f}
+                    </span>
                   </span>
-                </span>
-              ))}
-              {factors.length > 0 && (
-                <span className="ml-2 font-mono2 text-sm tracking-wider text-cyan-200/80">
-                  = <span className="font-display text-xl font-black text-cyan-300">{product}</span>
-                  <span className="ml-2 text-white/35">/ {problem.target}</span>
-                </span>
-              )}
-            </div>
-          )}
+                ))}
+                {factors.length > 0 && (
+                  <span className="ml-1.5 font-mono2 text-xs tracking-wider text-cyan-200/80 md:ml-2 md:text-sm">
+                    = <span className="font-display text-base font-black text-cyan-300 md:text-xl">{product}</span>
+                    <span className="ml-2 hidden text-white/35 md:inline">/ {problem.target}</span>
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
 
+          {/* backdrop blur only on md+: this bar and the problem panel sit
+              directly over Backdrop's continuously-animating glyph streams,
+              so a backdrop-filter blur has to be re-sampled by the GPU on
+              EVERY animation frame, forever -- one of the most expensive
+              things on a phone, and constant background work that makes
+              taps feel heavy. On the desktop GPU it's cheap, so keep the
+              glass effect there; on mobile the bg-black/* fill alone looks
+              nearly identical over the dark backdrop. */}
           <div
-            className="clip-btn relative flex items-center gap-3 border bg-black/60 px-4 py-3 backdrop-blur"
+            className="clip-btn relative flex items-center gap-3 border bg-black/60 px-4 py-3 md:backdrop-blur"
             style={{ borderColor: `${di.accent}0.6)`, boxShadow: `0 0 26px ${di.accent}0.22) inset` }}
           >
             <span className="font-mono2 text-sm text-cyan-400/80">{">"}</span>
             <input
               ref={inputRef}
-              value={input}
+              // Uncontrolled on purpose -- see `updateInput` above. The
+              // displayed value is written straight into the DOM so a
+              // keystroke no longer triggers a full-screen React render.
+              // Desktop typing still flows through onChange below, which
+              // sanitizes the text and syncs `inputValRef`; when
+              // sanitization actually changes the text, updateInput writes
+              // the corrected value back into the DOM too.
+              defaultValue=""
               inputMode="numeric"
               autoFocus
               readOnly={!isDesktop}
@@ -974,18 +1026,27 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
             </button>
           </div>
 
-          <div className="mt-2 flex min-h-[22px] items-center justify-between gap-3">
+          {/* Fixed height, no wrapping: this row used to be min-h-[22px],
+              so any message long enough to hit a second line (the factor-
+              mode error messages, easily, on a phone-width screen) grew the
+              row on a miss and shoved the number pad ~20px down, then it
+              snapped back up when the message cleared -- another source of
+              the "keys keep moving" complaint. Long messages now ellipsize
+              in place instead of moving anything. */}
+          <div className="mt-2 flex h-[22px] items-center justify-between gap-3 overflow-hidden">
             <span
-              className={`font-ui text-[13px] tracking-wide ${msg?.tone === "warn" ? "text-rose-400 neon-red" : "text-cyan-200/60"}`}
+              className={`min-w-0 flex-1 truncate font-ui text-[13px] tracking-wide ${msg?.tone === "warn" ? "text-rose-400 neon-red" : "text-cyan-200/60"}`}
             >
               {msg?.text ??
                 (problem.kind === "factor"
-                  ? "空欄で BackSpace = 直前の数字を削除"
+                  ? isDesktop
+                    ? "空欄で BackSpace = 直前の数字を削除"
+                    : "空欄で DEL = 直前の数字を削除"
                   : isDesktop
                     ? "ENTER で解答 / ESC でポーズ"
                     : "ENTER で解答 / 上部のボタンでポーズ")}
             </span>
-            <span className="hidden font-mono2 text-[10px] tracking-[0.25em] text-white/25 md:block">
+            <span className="hidden shrink-0 font-mono2 text-[10px] tracking-[0.25em] text-white/25 md:block">
               MISS {misses} · MAX COMBO ×{maxCombo}
             </span>
           </div>
@@ -1008,7 +1069,7 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
           className="absolute inset-0 z-40 flex items-center justify-center bg-black/65"
           style={{ animation: "pop-in 0.18s ease-out both" }}
         >
-          <div className="clip-panel relative w-[min(92vw,560px)] border border-cyan-400/40 bg-black/75 p-6 backdrop-blur-xl md:p-8">
+          <div className="clip-panel relative w-[min(92vw,560px)] border border-cyan-400/40 bg-black/75 p-6 md:p-8 md:backdrop-blur-xl">
             <span className="absolute left-2 top-2 h-3 w-3 border-l border-t border-cyan-300/80" />
             <span className="absolute right-2 top-2 h-3 w-3 border-r border-t border-cyan-300/80" />
             <span className="absolute bottom-2 left-2 h-3 w-3 border-b border-l border-cyan-300/80" />
