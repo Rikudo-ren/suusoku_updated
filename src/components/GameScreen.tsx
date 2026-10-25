@@ -39,74 +39,204 @@ export type GameStats = {
 const TOTAL_MS = 180_000;
 const PAD_KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"];
 
-// Split out and memoized so this whole 12-button block only re-renders when
-// its own props (accentColor) actually change -- not on every keystroke,
-// timer tick, or any other GameScreen state update. `onPress` must be a
-// referentially stable function (see `handlePress` in GameScreen) or this
-// memoization does nothing.
-// Every pad button fires on `onPointerDown` with `e.preventDefault()` (not
-// `onClick`) for two reasons:
-//   1. Instant response -- no waiting for the browser's up/click sequence.
-//   2. `preventDefault()` here stops the browser from following this pointer
-//      down with its own synthetic mousedown/focus/mouseup/click chain. Left
-//      alone, that chain steals focus onto the <button> that was just
-//      tapped; the *next* tap (whether it lands on the same button again or
-//      a different one) then has to fight that stolen focus and iOS/Android's
-//      fast-tap/double-tap gesture recognition on top of it. During rapid
-//      repeated taps -- mashing the same digit, or alternating digit/ENTER
-//      quickly -- that fight is exactly what was dropping presses. Suppressing
-//      the synthetic chain entirely makes every pointerdown behave the same
-//      regardless of how fast the previous one was.
+// Split out and memoized so this whole block only re-renders when its own
+// props (accentColor) actually change -- not on every keystroke, timer tick,
+// or any other GameScreen state update.
 //
-// A second, separate cause of dropped taps lived in the button's own visual
-// shape. `.clip-chip` cuts each corner off with `clip-path: polygon(...)`,
-// and `clip-path` doesn't just clip what's painted -- Chrome, Safari, and
-// Firefox all also clip *hit-testing* to that same polygon, so the cut
-// corners are not tappable at all; a touch landing there falls straight
-// through to whatever is behind the button. On a ~60px mobile pad key that
-// dead zone is a real fraction of the button, easy to miss when tapping
-// slowly and deliberately but far more likely to get hit once fingers are
-// moving fast and less precisely -- exactly the "mash 2 and ENTER back to
-// back" pattern that was reported as unresponsive. The fix: the clip-path
-// now lives on a non-interactive `aria-hidden` <span> layered *behind* the
-// label purely for the cut-corner look, while the <button> itself stays an
-// ordinary, fully-tappable rectangle -- so the whole visible key (corners
-// included) registers a press, no matter how fast or imprecisely it's hit.
+// ---------------------------------------------------------------------------
+// Why this is built the way it is (read before touching it)
+// ---------------------------------------------------------------------------
+// The old version attached an `onPointerDown` to each individual <button>.
+// That is the textbook "fast" approach, but it still leaves two ways for a
+// press to be lost, both of which players describe identically ("I mashed the
+// keys and nothing happened / ENTER stopped working"):
+//
+//   1. Hit-testing. A press only counts if it lands inside that button's own
+//      box. The keys are ~40x60px separated by 6px gutters, plus the cut
+//      corners from `.clip-chip` (clip-path clips hit-testing too) and the
+//      safe-area gap at the bottom. Typing fast with thumbs, a real fraction
+//      of presses land in those dead slivers and simply vanish.
+//   2. Gesture/focus interference. Every press had to re-earn the browser's
+//      permission to be a press (focus moves, :active, double-tap detection,
+//      scroll gestures). Anything that made the browser re-interpret the
+//      touch as a gesture turned the press into a pointercancel.
+//
+// So the pad is no longer 12 independent buttons. It is ONE surface with a
+// single native `pointerdown` listener attached to its container (not via
+// React, so nothing about React's render/commit timing can ever sit between
+// the touch and the handler). Each press is resolved by nearest-key distance
+// in viewport coordinates:
+//   - a press squarely on a key resolves to that key (distance 0, no remap);
+//   - a press in a gutter between keys, or a few px past the pad edge,
+//     resolves to the closest key instead of falling into a hole;
+//   - a press far away from everything (more than PAD_HIT_SLOP) is ignored,
+//     so this never invents input.
+// `preventDefault()` on the same event stops the browser from following the
+// press with a focus change, text selection, synthetic click, or gesture --
+// which is what made one press interfere with the next one.
+//
+// Visual feedback does not depend on `:active` either (preventDefault can
+// suppress it): a short-lived `.pad-hit` class is applied straight to the DOM
+// inside the same handler, so the key always lights up on the press itself.
+//
+// Only ONE event path is ever bound (pointerdown when the browser supports
+// pointer events, touchstart+mousedown otherwise), so a press can never be
+// counted twice -- double-firing digits would be worse than dropping them.
+const PAD_HIT_SLOP = 22; // px: how far outside a key a press still counts
+
 const NumPad = memo(function NumPad({ onPress, accentColor }: { onPress: (k: string) => void; accentColor: string }) {
-  const fire = (k: string) => (e: React.PointerEvent<HTMLButtonElement>) => {
-    e.preventDefault();
-    onPress(k);
-  };
+  const padRef = useRef<HTMLDivElement>(null);
+  // The listeners below are attached once. Routing through a ref keeps them
+  // calling the *newest* handler without ever re-binding (or re-rendering).
+  const onPressRef = useRef(onPress);
+  onPressRef.current = onPress;
+
+  useEffect(() => {
+    const root = padRef.current;
+    if (!root) return;
+
+    type Box = { k: string; l: number; t: number; r: number; b: number };
+    let boxes: Box[] = [];
+    let dirty = true;
+
+    const measure = () => {
+      boxes = [];
+      root.querySelectorAll<HTMLElement>("[data-key]").forEach((el) => {
+        const r = el.getBoundingClientRect();
+        if (r.width === 0 || r.height === 0) return;
+        boxes.push({ k: el.dataset.key as string, l: r.left, t: r.top, r: r.right, b: r.bottom });
+      });
+      dirty = false;
+    };
+    // Key geometry only changes on resize/rotation/zoom; re-measuring 12 rects
+    // on every single press would be pointless forced layout work.
+    const invalidate = () => {
+      dirty = true;
+    };
+
+    const hitTest = (x: number, y: number): string | null => {
+      if (dirty || boxes.length === 0) measure();
+      let best: string | null = null;
+      let bestD = Infinity;
+      for (const q of boxes) {
+        const dx = x < q.l ? q.l - x : x > q.r ? x - q.r : 0;
+        const dy = y < q.t ? q.t - y : y > q.b ? y - q.b : 0;
+        const d = dx * dx + dy * dy;
+        if (d < bestD) {
+          bestD = d;
+          best = q.k;
+          if (d === 0) break;
+        }
+      }
+      return best !== null && bestD <= PAD_HIT_SLOP * PAD_HIT_SLOP ? best : null;
+    };
+
+    const flashTimers = new Map<string, number>();
+    const flash = (k: string) => {
+      const el = root.querySelector<HTMLElement>(`[data-key="${k}"]`);
+      if (!el) return;
+      const prev = flashTimers.get(k);
+      if (prev !== undefined) window.clearTimeout(prev);
+      el.classList.add("pad-hit");
+      flashTimers.set(
+        k,
+        window.setTimeout(() => {
+          el.classList.remove("pad-hit");
+          flashTimers.delete(k);
+        }, 120),
+      );
+    };
+
+    const press = (x: number, y: number) => {
+      const k = hitTest(x, y);
+      if (k === null) return;
+      flash(k);
+      onPressRef.current(k);
+    };
+
+    const onPointerDown = (e: PointerEvent) => {
+      if (e.pointerType === "mouse" && e.button !== 0) return;
+      e.preventDefault();
+      press(e.clientX, e.clientY);
+    };
+    const onTouchStart = (e: TouchEvent) => {
+      e.preventDefault();
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        const t = e.changedTouches[i];
+        press(t.clientX, t.clientY);
+      }
+    };
+    const onMouseDown = (e: MouseEvent) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      press(e.clientX, e.clientY);
+    };
+    const onContextMenu = (e: Event) => e.preventDefault();
+
+    const hasPointer = typeof window !== "undefined" && "PointerEvent" in window;
+    if (hasPointer) {
+      root.addEventListener("pointerdown", onPointerDown, { passive: false });
+    } else {
+      root.addEventListener("touchstart", onTouchStart, { passive: false });
+      root.addEventListener("mousedown", onMouseDown);
+    }
+    root.addEventListener("contextmenu", onContextMenu);
+
+    window.addEventListener("resize", invalidate);
+    window.addEventListener("orientationchange", invalidate);
+    window.addEventListener("scroll", invalidate, true);
+    let ro: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== "undefined") {
+      ro = new ResizeObserver(invalidate);
+      ro.observe(root);
+    }
+
+    return () => {
+      if (hasPointer) root.removeEventListener("pointerdown", onPointerDown);
+      else {
+        root.removeEventListener("touchstart", onTouchStart);
+        root.removeEventListener("mousedown", onMouseDown);
+      }
+      root.removeEventListener("contextmenu", onContextMenu);
+      window.removeEventListener("resize", invalidate);
+      window.removeEventListener("orientationchange", invalidate);
+      window.removeEventListener("scroll", invalidate, true);
+      ro?.disconnect();
+      flashTimers.forEach((t) => window.clearTimeout(t));
+    };
+  }, []);
+
   return (
-    <>
-      <div className="mt-3 grid grid-cols-5 gap-1.5 md:hidden">
+    <div ref={padRef} className="mt-2 select-none md:hidden" style={{ touchAction: "none" }}>
+      <div className="grid grid-cols-5 gap-1.5">
         {PAD_KEYS.map((k) => (
           <button
             key={k}
             type="button"
-            onPointerDown={fire(k)}
-            style={{ touchAction: "manipulation" }}
-            className="group relative flex select-none items-center justify-center py-3"
+            data-key={k}
+            tabIndex={-1}
+            aria-label={k}
+            className="pad-key relative flex select-none items-center justify-center"
           >
-            <span
-              aria-hidden="true"
-              className="clip-chip absolute inset-0 border border-cyan-400/30 bg-white/5 group-active:bg-cyan-400/30"
-            />
-            <span className="relative z-10 font-display text-lg font-black text-cyan-100">{k}</span>
+            <span aria-hidden="true" className="pad-face clip-chip absolute inset-0 border border-cyan-400/30 bg-white/5" />
+            <span className="pointer-events-none relative z-10 font-display text-xl font-black text-cyan-100">{k}</span>
           </button>
         ))}
       </div>
-      <div className="mt-1.5 grid grid-cols-2 gap-1.5 md:hidden">
+      <div className="mt-1.5 grid grid-cols-2 gap-1.5">
         <button
           type="button"
-          onPointerDown={fire("DEL")}
+          data-key="DEL"
+          tabIndex={-1}
           aria-label="削除"
           title="削除"
-          style={{ touchAction: "manipulation" }}
-          className="group relative flex select-none items-center justify-center py-3 text-white/75"
+          className="pad-key relative flex select-none items-center justify-center text-white/75"
         >
-          <span aria-hidden="true" className="clip-chip absolute inset-0 border border-white/25 bg-white/5 group-active:bg-white/20" />
-          <svg className="relative z-10" width="22" height="16" viewBox="0 0 22 16" fill="none" aria-hidden="true">
+          <span
+            aria-hidden="true"
+            className="pad-face pad-face-dim clip-chip absolute inset-0 border border-white/25 bg-white/5"
+          />
+          <svg className="pointer-events-none relative z-10" width="22" height="16" viewBox="0 0 22 16" fill="none" aria-hidden="true">
             <path
               d="M7.2 1H20a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H7.2a1 1 0 0 1-.77-.36L1 8l5.43-6.64A1 1 0 0 1 7.2 1Z"
               stroke="currentColor"
@@ -118,19 +248,20 @@ const NumPad = memo(function NumPad({ onPress, accentColor }: { onPress: (k: str
         </button>
         <button
           type="button"
-          onPointerDown={fire("ENT")}
-          style={{ touchAction: "manipulation" }}
-          className="group relative flex select-none items-center justify-center py-3"
+          data-key="ENT"
+          tabIndex={-1}
+          aria-label="決定"
+          className="pad-key relative flex select-none items-center justify-center"
         >
           <span
             aria-hidden="true"
-            className="clip-chip absolute inset-0 group-active:brightness-90"
+            className="pad-face pad-face-accent clip-chip absolute inset-0"
             style={{ background: accentColor, boxShadow: `0 0 20px ${accentColor}` }}
           />
-          <span className="relative z-10 font-display text-lg font-black text-black">⏎ ENTER</span>
+          <span className="pointer-events-none relative z-10 font-display text-lg font-black text-black">⏎ ENTER</span>
         </button>
       </div>
-    </>
+    </div>
   );
 });
 
@@ -156,6 +287,11 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
 
   const [phase, setPhase] = useState<"countdown" | "play">("countdown");
   const [count, setCount] = useState(3);
+  // Non-zero while the "GO" burst is on screen. It is painted by a
+  // pointer-events-none layer in its own right, precisely so that it can never
+  // block input the way the real countdown overlay does (see the countdown
+  // effect for why that mattered).
+  const [goAt, setGoAt] = useState(0);
   // `remain` used to be React state updated every animation frame (~60x/sec),
   // which forced the ENTIRE screen (HUD, problem panel, on-screen keypad,
   // Backdrop) to re-render 60 times a second. That constant re-render work
@@ -204,28 +340,41 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
     setProblem(value);
   };
 
-  // The typed value now lives ONLY here (plus the <input>'s own DOM value)
-  // -- deliberately NOT in React state. `updateInput` is called on every
-  // single keystroke, and when this was `useState` rendered into a
-  // controlled `value={input}`, each keystroke re-rendered the ENTIRE game
-  // screen (HUD, problem panel, fx layers, the works) on the main thread,
-  // right in the middle of the player's fastest tap bursts. That render
-  // work is exactly what rapid consecutive number taps were competing with,
-  // and why they felt late/dropped on phones even with pointerdown wired
-  // up correctly. But nothing on screen actually needs a React render when
-  // a digit changes -- the value is displayed in exactly one place (the
-  // <input> itself), so echo it straight into the DOM and skip React
-  // entirely: same trick the sub-second timer display uses. Game logic
-  // (submit, DEL) reads `inputValRef` and never trusted state anyway.
-  // Net effect: digit taps and DEL now cause ZERO React re-renders; the
-  // screen only re-renders on events that genuinely change the layout
-  // (correct answer, miss message, factor chip add/remove, timer tick).
+  // The typed value lives ONLY here (plus whatever node is displaying it)
+  // -- deliberately NOT in React state. `updateInput` runs on every single
+  // keystroke, and when this was `useState` rendered into a controlled
+  // `value={input}`, each keystroke re-rendered the ENTIRE game screen (HUD,
+  // problem panel, fx layers, the works) on the main thread, right in the
+  // middle of the player's fastest tap bursts. Nothing on screen needs a
+  // React render when a digit changes -- the value is displayed in exactly
+  // one place -- so it is echoed straight into the DOM: same trick the
+  // sub-second timer display uses. Game logic (submit, DEL) reads
+  // `inputValRef` and never trusted state anyway.
+  // Net effect: digit taps and DEL cause ZERO React re-renders.
+  //
+  // The display node itself differs by device (see the answer bar):
+  //   - desktop (>= 768px): a real <input>, so a physical keyboard works
+  //     natively with a normal caret.
+  //   - phone: a plain <div>. There is NO focusable element in the mobile
+  //     game screen at all, which is what makes it impossible for the virtual
+  //     keyboard to flash/slide up and back down when a run starts, and
+  //     impossible for focus handling to interfere with a tap.
   const inputValRef = useRef("");
+  const inputRef = useRef<HTMLInputElement>(null);
+  const displayRef = useRef<HTMLDivElement>(null);
+  const paintInput = (value: string) => {
+    const input = inputRef.current;
+    if (input) {
+      if (input.value !== value) input.value = value;
+      return;
+    }
+    const display = displayRef.current;
+    if (display && display.textContent !== value) display.textContent = value;
+  };
   const updateInput = (next: string | ((v: string) => string)) => {
     const value = typeof next === "function" ? (next as (v: string) => string)(inputValRef.current) : next;
     inputValRef.current = value;
-    const el = inputRef.current;
-    if (el && el.value !== value) el.value = value;
+    paintInput(value);
   };
 
   const [factors, setFactors] = useState<number[]>([]);
@@ -238,6 +387,17 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
   // -------------------------------------------------------------------------
 
   const [msg, setMsg] = useState<{ text: string; tone: "info" | "warn" } | null>(null);
+  const msgRef = useRef<{ text: string; tone: "info" | "warn" } | null>(null);
+  // Showing the same message again is a no-op: mashing ENTER on an empty field
+  // (or missing twice with the same number) must not queue up a React render
+  // per press -- that render is exactly what would delay the next tap.
+  const setMessage = (next: { text: string; tone: "info" | "warn" } | null) => {
+    const cur = msgRef.current;
+    if (cur === next) return;
+    if (cur && next && cur.text === next.text && cur.tone === next.tone) return;
+    msgRef.current = next;
+    setMsg(next);
+  };
   const [fx, setFx] = useState<Fx>(null);
   const [popups, setPopups] = useState<{ id: number; text: string }[]>([]);
   const [paused, setPaused] = useState(false);
@@ -247,10 +407,21 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
   // どちらからの要求も無視し、代わりに警告メッセージを出す。
   const [pausesLeft, setPausesLeft] = useState(MAX_PAUSES);
 
+  // The counters exist twice on purpose. The refs are authoritative and are
+  // written synchronously inside the event that changes them; the state copies
+  // only exist to be rendered. Reading a counter from state is not safe during
+  // fast play: a digit that completes a factor problem and the ENTER for the
+  // next one can both be handled before React has committed the previous
+  // render, and a state-based counter would then silently lose one of them
+  // (also why finish() reads the refs, not the rendered values).
   const [solved, setSolved] = useState(0);
   const [combo, setCombo] = useState(0);
   const [maxCombo, setMaxCombo] = useState(0);
   const [misses, setMisses] = useState(0);
+  const solvedRef = useRef(0);
+  const comboRef = useRef(0);
+  const maxComboRef = useRef(0);
+  const missesRef = useRef(0);
   const byKind = useRef<Record<ProblemKind, number>>({ arith: 0, muldiv: 0, factor: 0 });
 
   const endRef = useRef(0);
@@ -265,17 +436,23 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
   const finishTimeoutRef = useRef<number | null>(null);
   const warnedRef = useRef(false);
   const doneRef = useRef(false);
-  const inputRef = useRef<HTMLInputElement>(null);
   const fxKey = useRef(0);
   const popId = useRef(0);
 
-  // On phones there's an on-screen number pad (below), so the real <input>
-  // never needs the native virtual keyboard -- and if it gets focused (which
-  // happens a lot: autoFocus, tapping anywhere, pressing a pad key) the OS
-  // keyboard would otherwise pop up and cover half the screen. Making the
-  // input readOnly on small screens keeps it focusable/blinking-caret and
-  // fully controllable from React state, but stops the virtual keyboard from
-  // ever appearing. Desktop (md+) keeps normal physical-keyboard typing.
+  // Width (not "is it a touch device") is the switch, because it matches the
+  // CSS exactly: the on-screen number pad is `md:hidden`, so below 768px the
+  // pad exists and the native <input> must not. Above it there is no pad, so
+  // the <input> is the only way to answer and keeps normal physical-keyboard
+  // behaviour.
+  //
+  // Crucially, the phone side has NO focusable element at all (the answer
+  // field is a plain <div>, see the answer bar) rather than the readOnly
+  // <input> it used to be. A readOnly input is still focusable, so autoFocus
+  // on mount still asked the OS for the virtual keyboard -- on several
+  // Android browsers/webviews that request is visible as the keyboard sliding
+  // up and immediately back down right as a run starts (and on iOS the
+  // scroll-into-view for that focus nudges the whole layout). Removing the
+  // element removes the entire class of problem instead of suppressing it.
   const [isDesktop, setIsDesktop] = useState(
     () => typeof window !== "undefined" && window.matchMedia("(min-width: 768px)").matches,
   );
@@ -286,8 +463,18 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
     return () => mq.removeEventListener("change", handler);
   }, []);
 
+  // The display node is a different element (and a different DOM subtree)
+  // after a phone/desktop switch or a rotation, so re-echo the current value
+  // into whichever one is now mounted.
+  useEffect(() => {
+    paintInput(inputValRef.current);
+  }, [isDesktop]);
+
   const danger = secondsLeft <= 30;
   const critical = secondsLeft <= 10;
+  // A run is being played right now (used for HUD visibility only -- the input
+  // path checks the same conditions itself, from refs).
+  const playable = phase === "play" && !paused && !resuming;
   const score = solved * di.points;
   // Display-only. Logic that must react instantly to the latest factors
   // (submit()) recomputes this itself from `factorsValRef.current` instead
@@ -296,27 +483,55 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
   const product = useMemo(() => factors.reduce((a, b) => a * b, 1), [factors]);
 
   /* ---------- countdown ---------- */
+  // Note the side effects are NOT inside a setState updater here. Updaters can
+  // be invoked more than once (StrictMode does exactly that in development),
+  // which previously meant the "GO" sound and the phase flip could fire twice.
+  // A chain of plain timeouts is deterministic and fully cancellable.
   useEffect(() => {
     if (phase !== "countdown") return;
     sfxUI();
-    let go = 0;
-    const id = window.setInterval(() => {
-      setCount((c) => {
-        if (c <= 1) {
-          window.clearInterval(id);
+    const timers: number[] = [];
+    const step = (v: number) => {
+      setCount(v);
+      if (v > 1) {
+        timers.push(
+          window.setTimeout(() => {
+            sfxUI();
+            step(v - 1);
+          }, 1000),
+        );
+        return;
+      }
+      timers.push(
+        window.setTimeout(() => {
           sfxWarn();
-          go = window.setTimeout(() => setPhase("play"), 750);
-          return 0;
-        }
-        sfxUI();
-        return c - 1;
-      });
-    }, 1000);
-    return () => {
-      window.clearInterval(id);
-      window.clearTimeout(go);
+          // Play starts on the same frame "GO" appears. The old code kept the
+          // countdown overlay -- `absolute inset-0`, so it swallows every tap
+          // -- mounted for another 750ms after GO, and submit() additionally
+          // refuses to run unless phase === "play". Anything pressed in that
+          // window vanished with zero feedback: this is the "I typed fast and
+          // ENTER just did nothing" report. GO now paints in its own
+          // pointer-events-none layer, so the first tap after GO counts.
+          setGoAt(performance.now());
+          setPhase("play");
+        }, 1000),
+      );
     };
+    timers.push(
+      window.setTimeout(() => {
+        sfxUI();
+        step(2);
+      }, 1000),
+    );
+    return () => timers.forEach((t) => window.clearTimeout(t));
   }, [phase]);
+
+  // "GO" is decoration only -- it disappears on its own and never blocks input.
+  useEffect(() => {
+    if (!goAt) return;
+    const id = window.setTimeout(() => setGoAt(0), 700);
+    return () => window.clearTimeout(id);
+  }, [goAt]);
 
   /* ---------- timer (suspend when paused/resuming) ---------- */
   useEffect(() => {
@@ -324,7 +539,9 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
     if (paused || resuming) return;
     if (bgmEnabled) setMusicMode(Math.ceil(remainRef.current / 1000) <= 30 ? "danger" : "battle");
     endRef.current = performance.now() + remainRef.current;
-    inputRef.current?.focus();
+    // Desktop only: on phones there is no <input> to focus (and focusing one
+    // is what used to summon/close the virtual keyboard mid-run).
+    if (window.matchMedia("(min-width: 768px)").matches) inputRef.current?.focus();
     let raf = 0;
     const loop = () => {
       const left = Math.max(0, endRef.current - performance.now());
@@ -369,7 +586,7 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
           warnedRef.current = true;
           sfxWarn();
           setMusicMode("danger");
-          setMsg({ text: "WARNING // 残り30秒", tone: "warn" });
+          setMessage({ text: "WARNING // 残り30秒", tone: "warn" });
         }
       }
       if (left <= 0) {
@@ -404,19 +621,24 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
   const finish = useCallback(() => {
     if (doneRef.current) return;
     doneRef.current = true;
+    // Authoritative counters (see the "counters exist twice" note above): the
+    // rendered values can legitimately be one answer behind at the buzzer.
+    const finalSolved = solvedRef.current;
+    const finalMisses = missesRef.current;
+    const finalMaxCombo = maxComboRef.current;
     sfxTimeUp();
     stopMusic(0.8);
     onFinish({
       difficulty,
       mode,
-      solved,
-      score: solved * di.points,
-      misses,
-      maxCombo,
+      solved: finalSolved,
+      score: finalSolved * DIFF_INFO[difficulty].points,
+      misses: finalMisses,
+      maxCombo: finalMaxCombo,
       byKind: { ...byKind.current },
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [solved, misses, maxCombo, difficulty, di.points, mode, onFinish]);
+  }, [difficulty, mode, onFinish]);
 
   const finishRef = useRef(finish);
   finishRef.current = finish;
@@ -427,7 +649,7 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
     if (paused || resuming || doneRef.current) return;
     if (pausesLeft <= 0) {
       sfxError();
-      setMsg({ text: `ポーズ回数の上限（${MAX_PAUSES}回）に達しました`, tone: "warn" });
+      setMessage({ text: `ポーズ回数の上限（${MAX_PAUSES}回）に達しました`, tone: "warn" });
       return;
     }
     setPausesLeft((p) => p - 1);
@@ -443,26 +665,46 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
         requestPause();
         return;
       }
-      if (!paused) return;
-      const k = e.key.toLowerCase();
-      if (e.key === "Enter") {
-        e.preventDefault();
-        sfxSelect();
-        startResume();
-      } else if (k === "r") {
-        e.preventDefault();
-        sfxSelect();
-        onRetry();
-      } else if (k === "t") {
-        e.preventDefault();
-        sfxSelect();
-        onTitle();
+      if (paused) {
+        const k = e.key.toLowerCase();
+        if (e.key === "Enter") {
+          e.preventDefault();
+          sfxSelect();
+          startResume();
+        } else if (k === "r") {
+          e.preventDefault();
+          sfxSelect();
+          onRetry();
+        } else if (k === "t") {
+          e.preventDefault();
+          sfxSelect();
+          onTitle();
+        }
+        return;
+      }
+      if (resuming) return;
+      // Phones have no answer <input> at all (see the answer bar), so a
+      // Bluetooth/USB keyboard would otherwise type into nothing. Handling it
+      // here keeps the physical-keyboard path working on every device without
+      // reintroducing a focusable element. On desktop the <input>'s own
+      // handler below does this, so these two can never both fire.
+      if (!isDesktop) {
+        if (/^[0-9]$/.test(e.key)) {
+          e.preventDefault();
+          pressKeyRef.current(e.key);
+        } else if (e.key === "Enter") {
+          e.preventDefault();
+          pressKeyRef.current("ENT");
+        } else if (e.key === "Backspace") {
+          e.preventDefault();
+          pressKeyRef.current("DEL");
+        }
       }
     };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phase, paused, resuming, pausesLeft, onRetry, onTitle]);
+  }, [phase, paused, resuming, pausesLeft, isDesktop, onRetry, onTitle]);
 
   const triggerFx = (kind: "correct" | "error", gain = 0) => {
     fxKey.current += 1;
@@ -495,30 +737,61 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
     updateProblem((p) => generateProblem(difficulty, mode, p.kind));
     updateInput("");
     updateFactors([]);
-    setMsg(null);
+    setMessage(null);
   };
 
   const onCorrect = () => {
-    const c = combo + 1;
+    // Refs first (synchronously authoritative), state mirrors second. Two
+    // correct answers can land in the same tick -- a digit that completes a
+    // factor problem followed immediately by ENTER for the next one -- and a
+    // counter read from state would silently lose one of them.
+    const c = comboRef.current + 1;
+    comboRef.current = c;
+    if (c > maxComboRef.current) maxComboRef.current = c;
+    solvedRef.current += 1;
+    byKind.current[problemRef.current.kind] += 1;
+
     setCombo(c);
-    setMaxCombo((m) => Math.max(m, c));
-    setSolved((s) => s + 1);
-    byKind.current[problem.kind] += 1;
-    sfxCorrect(c);
-    triggerFx("correct", di.points);
-    popId.current += 1;
-    const id = popId.current;
-    setPopups((p) => [...p, { id, text: `+${di.points}` }]);
-    window.setTimeout(() => setPopups((p) => p.filter((x) => x.id !== id)), 900);
+    setMaxCombo(maxComboRef.current);
+    setSolved(solvedRef.current);
     nextProblem();
+
+    sfxCorrect(c);
+    // The decorative burst (full-screen flash + rings + 8 sparks) and the
+    // "+points" popup go out in a separate task, after the logical state is
+    // already correct. They are by far the most expensive thing that happens
+    // on a solve and they land precisely when the player is already mashing
+    // the next answer, so they must not be built in the same task that
+    // handles the tap which produced them.
+    window.setTimeout(() => {
+      triggerFx("correct", di.points);
+      popId.current += 1;
+      const id = popId.current;
+      setPopups((p) => [...p, { id, text: `+${di.points}` }]);
+      window.setTimeout(() => setPopups((p) => p.filter((x) => x.id !== id)), 900);
+    }, 0);
   };
 
   const onMiss = (text: string) => {
+    comboRef.current = 0;
+    missesRef.current += 1;
     setCombo(0);
-    setMisses((m) => m + 1);
+    setMisses(missesRef.current);
     sfxError();
     triggerFx("error");
-    setMsg({ text, tone: "warn" });
+    setMessage({ text, tone: "warn" });
+  };
+
+  const answerBarRef = useRef<HTMLDivElement>(null);
+  // "Nothing happened" is indistinguishable from "the app is broken". Used
+  // when ENTER is pressed with an empty answer, so a press always has a
+  // visible consequence.
+  const nudgeAnswerBar = () => {
+    const el = answerBarRef.current;
+    if (!el) return;
+    el.classList.remove("answer-bar-nudge");
+    void el.offsetWidth; // restart the animation even on back-to-back presses
+    el.classList.add("answer-bar-nudge");
   };
 
   const submit = () => {
@@ -531,8 +804,18 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
     const p = problemRef.current;
     const raw = inputValRef.current.trim();
 
+    if (raw === "") {
+      // Factor mode with primes already banked: there is genuinely nothing to
+      // submit (the chips are the answer), so stay quiet. Everywhere else,
+      // answer the press instead of swallowing it.
+      if (p.kind === "factor" && factorsValRef.current.length > 0) return;
+      nudgeAnswerBar();
+      sfxWarn();
+      setMessage({ text: "数字を入力してから ENTER", tone: "info" });
+      return;
+    }
+
     if (p.kind !== "factor") {
-      if (raw === "") return;
       const val = Number(raw);
       if (Number.isNaN(val)) return;
       if (val === p.answer) onCorrect();
@@ -543,7 +826,6 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
       return;
     }
 
-    if (raw === "") return;
     const n = Number(raw);
     if (!Number.isInteger(n) || n < 2) {
       onMiss("2以上の素数を入力してください");
@@ -568,10 +850,14 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
     updateInput("");
     const prod = nf.reduce((a, b) => a * b, 1);
     if (prod === p.target) {
-      window.setTimeout(() => onCorrect(), 90);
+      // Advance immediately. The old 90ms delay existed only so the last chip
+      // could be admired -- but during that window the problem was still
+      // "live", so a second ENTER could bank another factor and complete the
+      // same problem twice (double score, and a phantom extra solve).
+      onCorrect();
     } else {
       sfxFactorAdd(nf.length);
-      setMsg(null);
+      setMessage(null);
     }
   };
 
@@ -584,13 +870,15 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
         e.preventDefault();
         updateFactors((f) => f.slice(0, -1));
         sfxDelete();
-        setMsg(null);
+        setMessage(null);
       }
     }
   };
 
   const pressKey = (k: string) => {
-    if (paused || resuming) return;
+    // Nothing is accepted until the run has actually started, so phantom
+    // presses before/at GO can never pre-fill the answer box.
+    if (phase !== "play" || paused || resuming || doneRef.current) return;
     if (k === "ENT") {
       submit();
       return;
@@ -600,6 +888,7 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
         if (problemRef.current.kind === "factor" && factorsValRef.current.length > 0) {
           updateFactors((f) => f.slice(0, -1));
           sfxDelete();
+          setMessage(null);
         }
       } else {
         updateInput((v) => v.slice(0, -1));
@@ -633,21 +922,28 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
     setResuming(true);
     setResumeCount(3);
     sfxUI();
-    const id = window.setInterval(() => {
-      setResumeCount((c) => {
-        if (c <= 1) {
-          window.clearInterval(id);
-          sfxWarn();
-          window.setTimeout(() => {
-            setResuming(false);
-            setPaused(false);
-            lastSecRef.current = 999;
-          }, 750);
-          return 0;
-        }
-        sfxUI();
-        return c - 1;
-      });
+    const step = (v: number) => {
+      setResumeCount(v);
+      if (v > 1) {
+        window.setTimeout(() => {
+          sfxUI();
+          step(v - 1);
+        }, 1000);
+        return;
+      }
+      // Input is live again on the same frame "GO" appears -- no extra 750ms
+      // of dead keys the way it used to be.
+      window.setTimeout(() => {
+        sfxWarn();
+        setGoAt(performance.now());
+        setResuming(false);
+        setPaused(false);
+        lastSecRef.current = 999;
+      }, 1000);
+    };
+    window.setTimeout(() => {
+      sfxUI();
+      step(2);
     }, 1000);
   };
 
@@ -724,7 +1020,9 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
         </div>
       )}
 
-      {/* countdown */}
+      {/* 3-2-1 countdown. This overlay is intentionally tap-blocking: the run
+          has not started yet, so accepting input here would pre-fill a stale
+          answer. */}
       {phase === "countdown" && (
         <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/75">
           <div className="absolute h-[42vmin] w-[42vmin] rounded-full border border-cyan-300/30 countdown-halo" />
@@ -733,8 +1031,19 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
             key={count}
             className="countdown-clear font-display text-[22vw] font-black text-white neon md:text-[180px]"
           >
-            {count > 0 ? count : "GO"}
+            {count}
           </div>
+        </div>
+      )}
+
+      {/* GO. Play has already started underneath this, and the layer is
+          pointer-events-none, so the very first tap after GO counts -- the
+          old 750ms blocked window after GO is gone. */}
+      {goAt !== 0 && (
+        <div key={goAt} className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center">
+          <div className="absolute h-[42vmin] w-[42vmin] rounded-full border border-cyan-300/30 countdown-halo" />
+          <div className="absolute h-[32vmin] w-[32vmin] rounded-full border border-fuchsia-300/25 countdown-halo" style={{ animationDelay: "0.12s" }} />
+          <div className="countdown-clear font-display text-[22vw] font-black text-white neon md:text-[180px]">GO</div>
         </div>
       )}
 
@@ -753,58 +1062,103 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
           transition: "filter 0.4s ease, transform 0.4s ease",
         }}
       >
-        {/* HUD */}
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex flex-col gap-2">
-            <div className="flex flex-wrap items-center gap-2">
-              {/* Mobile pause button: ESC (below) has no touch equivalent, so
-                  this gives phone players a reachable, always-visible way to
-                  pause. Placed at the top, away from the number pad. Icon is
-                  drawn with CSS bars (not an emoji) to match the HUD style. */}
-              {phase === "play" && !paused && !resuming && (
-                <button
-                  onClick={() => {
-                    if (pausesLeft > 0) sfxSelect();
-                    requestPause();
-                  }}
-                  aria-label="ポーズ"
-                  title={`ポーズ（残り${pausesLeft}回）`}
-                  className={`clip-chip inline-flex items-center gap-1.5 border border-white/25 bg-black/50 px-3 py-1 font-display text-xs font-black tracking-[0.2em] text-white/80 active:bg-white/15 md:hidden ${
-                    pausesLeft <= 0 ? "opacity-40" : ""
-                  }`}
-                >
-                  <span className="flex items-center gap-[3px]" aria-hidden="true">
-                    <span className="h-3 w-[3px] bg-current" />
-                    <span className="h-3 w-[3px] bg-current" />
-                  </span>
-                  PAUSE
-                  <span className="font-mono2 text-[9px] tracking-normal text-white/50">×{pausesLeft}</span>
-                </button>
-              )}
+        {/* HUD -- two fixed-height rows.
+            The previous HUD was one `justify-between` row of three columns
+            whose natural widths (a 7.2ch timer, a w-40 progress bar, three
+            chips, SCORE, SOLVED/COMBO) add up to far more than a phone's
+            width, and the chips row was `flex-wrap`. So it wrapped to a second
+            line at unpredictable moments -- notably the instant a run starts,
+            when the PAUSE chip first appears. That extra line made the column
+            taller than the screen, which pushed everything below it down and
+            off the bottom edge: the "the keypad drops the moment I start"
+            report. This version is sized to fit: two rows, never wrapping, and
+            the pause slot is always reserved (invisible before play) so the
+            HUD's height is identical during the countdown and during play. */}
+        <div className="flex flex-col gap-1.5 md:gap-2">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex min-w-0 flex-nowrap items-center gap-1.5 overflow-hidden md:gap-2">
+              {/* Mobile pause button: ESC has no touch equivalent, so this
+                  gives phone players a reachable, always-visible way to pause.
+                  Placed at the top, away from the number pad. Icon is drawn
+                  with CSS bars (not an emoji) to match the HUD style. */}
+              <button
+                onClick={() => {
+                  if (pausesLeft > 0) sfxSelect();
+                  requestPause();
+                }}
+                aria-label="ポーズ"
+                title={`ポーズ（残り${pausesLeft}回）`}
+                className={`clip-chip inline-flex shrink-0 items-center gap-1 border border-white/25 bg-black/50 px-2 py-1 font-display text-[10px] font-black tracking-[0.15em] text-white/80 active:bg-white/15 md:hidden ${
+                  playable ? "" : "invisible"
+                } ${pausesLeft <= 0 ? "opacity-40" : ""}`}
+              >
+                <span className="flex items-center gap-[3px]" aria-hidden="true">
+                  <span className="h-3 w-[3px] bg-current" />
+                  <span className="h-3 w-[3px] bg-current" />
+                </span>
+                PAUSE
+                <span className="font-mono2 text-[9px] tracking-normal text-white/50">×{pausesLeft}</span>
+              </button>
               <div
-                className="clip-chip inline-flex items-center gap-2 px-3 py-1"
+                className="clip-chip inline-flex shrink-0 items-center gap-1.5 px-2 py-1 md:gap-2 md:px-3"
                 style={{ background: `${di.accent}0.14)`, border: `1px solid ${di.color}66` }}
               >
                 <span className="h-1.5 w-1.5 rotate-45" style={{ background: di.color }} />
-                <span className="font-display text-xs font-black tracking-[0.25em]" style={{ color: di.color }}>
+                <span className="font-display text-[11px] font-black tracking-[0.18em] md:text-xs md:tracking-[0.25em]" style={{ color: di.color }}>
                   {di.label}
                 </span>
-                <span className="font-mono2 text-[10px] text-white/45">×{di.points}</span>
+                <span className="font-mono2 text-[9px] text-white/45 md:text-[10px]">×{di.points}</span>
               </div>
               <div
-                className="clip-chip inline-flex items-center gap-2 px-3 py-1"
+                className="clip-chip inline-flex shrink-0 items-center gap-1.5 px-2 py-1 md:gap-2 md:px-3"
                 style={{ background: `${mi.accent}0.14)`, border: `1px solid ${mi.color}66` }}
               >
                 <span className="h-1.5 w-1.5 rotate-45" style={{ background: mi.color }} />
-                <span className="font-display text-[11px] font-black tracking-[0.25em]" style={{ color: mi.color }}>
+                <span className="font-display text-[10px] font-black tracking-[0.18em] md:text-[11px] md:tracking-[0.25em]" style={{ color: mi.color }}>
                   {mi.label}
                 </span>
               </div>
             </div>
-            <div className="relative">
-              <div className="font-mono2 text-[10px] tracking-[0.35em] text-cyan-300/60">SCORE</div>
-              <div className="font-display text-4xl font-black leading-none text-white neon md:text-6xl">
+
+            {/* Desktop keeps SOLVED / COMBO in the top-right corner. On phones
+                they live under SCORE instead (see below) so the top row can
+                never overflow. */}
+            <div className="hidden shrink-0 items-end gap-4 md:flex">
+              <div className="text-right">
+                <div className="font-mono2 text-[10px] tracking-[0.35em] text-cyan-300/60">SOLVED</div>
+                <div className="font-display text-4xl font-black leading-none text-white">{solved}</div>
+              </div>
+              <div className="text-right">
+                <div className="font-mono2 text-[10px] tracking-[0.35em] text-fuchsia-300/60">COMBO</div>
+                <div
+                  className="font-display text-3xl font-black leading-none"
+                  style={{ color: combo >= 3 ? "#ff2bd1" : "rgba(255,255,255,0.5)", textShadow: combo >= 3 ? "0 0 16px #ff2bd1" : "none" }}
+                >
+                  ×{combo}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-end justify-between gap-2">
+            <div className="relative min-w-0">
+              <div className="font-mono2 text-[9px] tracking-[0.3em] text-cyan-300/60 md:text-[10px] md:tracking-[0.35em]">SCORE</div>
+              <div className="font-display text-3xl font-black leading-none text-white neon md:text-6xl">
                 {String(score).padStart(score >= 1000 ? 4 : 3, "0")}
+              </div>
+              {/* Phone-only: SOLVED + COMBO as one compact line directly under
+                  the score. Zero horizontal pressure, so nothing here can push
+                  the timer off-screen. */}
+              <div className="mt-1 flex items-baseline gap-1.5 md:hidden">
+                <span className="font-mono2 text-[9px] tracking-[0.12em] text-cyan-300/50">SOLVED</span>
+                <span className="font-display text-base font-black leading-none text-white">{solved}</span>
+                <span className="ml-1 font-mono2 text-[9px] tracking-[0.12em] text-fuchsia-300/50">COMBO</span>
+                <span
+                  className="font-display text-base font-black leading-none"
+                  style={{ color: combo >= 3 ? "#ff2bd1" : "rgba(255,255,255,0.5)" }}
+                >
+                  ×{combo}
+                </span>
               </div>
               {popups.map((p) => (
                 <span
@@ -815,62 +1169,49 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
                 </span>
               ))}
             </div>
-          </div>
 
-          <div className="flex flex-col items-center">
-            <div className="font-mono2 text-[10px] tracking-[0.4em]" style={{ color: danger ? "#ff8095" : "rgba(103,232,249,0.6)" }}>
-              TIME REMAINING
-            </div>
-            <div
-              ref={bigTimeRef}
-              className={`font-display text-5xl font-black leading-none tabular-nums transition-colors duration-300 md:text-7xl ${
-                critical ? "animate-pulse" : ""
-              }`}
-              style={{
-                color: timeColor,
-                textShadow: `0 0 12px ${timeColor}, 0 0 40px ${timeColor}88`,
-                // Orbitron (loaded from Google Fonts) doesn't actually ship
-                // tabular/fixed-width digit glyphs, so the `tabular-nums`
-                // class above has no real effect on it -- a "1" stays
-                // visibly narrower than an "8". That made this element's
-                // own width flicker by a couple of px every time a digit
-                // changed, and because it sits in a `justify-between` HUD
-                // row next to SCORE/SOLVED, that flicker was also nudging
-                // those neighbours left-right. Pinning this box to a fixed
-                // width (generous enough for the widest possible
-                // "M:SS.CC") stops it from ever resizing, so nothing here
-                // or beside it can jitter, regardless of the font's actual
-                // glyph metrics.
-                width: "7.2ch",
-                textAlign: "center",
-              }}
-            >
-              {mm}:{String(ss).padStart(2, "0")}
-              <span ref={csRef} className="text-2xl md:text-3xl" style={{ fontVariantNumeric: "tabular-nums" }}>
-                .00
-              </span>
-            </div>
-            <div className="mt-1 h-1.5 w-40 overflow-hidden bg-white/10 md:w-72">
+            <div className="flex shrink-0 flex-col items-end">
               <div
-                ref={progressBarRef}
-                className="h-full transition-[width] duration-100"
-                style={{ width: "100%", background: `linear-gradient(90deg, ${timeColor}, #fff)`, boxShadow: `0 0 14px ${timeColor}` }}
-              />
-            </div>
-          </div>
-
-          <div className="flex flex-col items-end gap-2">
-            <div className="text-right">
-              <div className="font-mono2 text-[10px] tracking-[0.35em] text-cyan-300/60">SOLVED</div>
-              <div className="font-display text-3xl font-black leading-none text-white md:text-4xl">{solved}</div>
-            </div>
-            <div className="text-right">
-              <div className="font-mono2 text-[10px] tracking-[0.35em] text-fuchsia-300/60">COMBO</div>
-              <div
-                className="font-display text-2xl font-black leading-none md:text-3xl"
-                style={{ color: combo >= 3 ? "#ff2bd1" : "rgba(255,255,255,0.5)", textShadow: combo >= 3 ? "0 0 16px #ff2bd1" : "none" }}
+                className="font-mono2 text-[9px] tracking-[0.28em] md:text-[10px] md:tracking-[0.4em]"
+                style={{ color: danger ? "#ff8095" : "rgba(103,232,249,0.6)" }}
               >
-                ×{combo}
+                <span className="md:hidden">TIME</span>
+                <span className="hidden md:inline">TIME REMAINING</span>
+              </div>
+              <div
+                ref={bigTimeRef}
+                className={`font-display text-4xl font-black leading-none tabular-nums transition-colors duration-300 md:text-7xl ${
+                  critical ? "animate-pulse" : ""
+                }`}
+                style={{
+                  color: timeColor,
+                  textShadow: `0 0 12px ${timeColor}, 0 0 40px ${timeColor}88`,
+                  // Orbitron (loaded from Google Fonts) doesn't actually ship
+                  // tabular/fixed-width digit glyphs, so the `tabular-nums`
+                  // class above has no real effect on it -- a "1" stays
+                  // visibly narrower than an "8". That made this element's
+                  // own width flicker by a couple of px every time a digit
+                  // changed, and because it sits opposite SCORE in the HUD,
+                  // that flicker was also nudging it left-right. Pinning this
+                  // box to a fixed width (generous enough for the widest
+                  // possible "M:SS.CC") stops it from ever resizing, so
+                  // nothing here or beside it can jitter, regardless of the
+                  // font's actual glyph metrics.
+                  width: "7.2ch",
+                  textAlign: "center",
+                }}
+              >
+                {mm}:{String(ss).padStart(2, "0")}
+                <span ref={csRef} className="text-xl md:text-3xl" style={{ fontVariantNumeric: "tabular-nums" }}>
+                  .00
+                </span>
+              </div>
+              <div className="mt-1 h-1.5 w-28 overflow-hidden bg-white/10 md:w-72">
+                <div
+                  ref={progressBarRef}
+                  className="h-full transition-[width] duration-100"
+                  style={{ width: "100%", background: `linear-gradient(90deg, ${timeColor}, #fff)`, boxShadow: `0 0 14px ${timeColor}` }}
+                />
               </div>
             </div>
           </div>
@@ -989,36 +1330,62 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
               glass effect there; on mobile the bg-black/* fill alone looks
               nearly identical over the dark backdrop. */}
           <div
-            className="clip-btn relative flex items-center gap-3 border bg-black/60 px-4 py-3 md:backdrop-blur"
+            ref={answerBarRef}
+            className="answer-bar clip-btn relative flex items-center gap-2 border bg-black/60 px-3 py-2 md:gap-3 md:px-4 md:py-3 md:backdrop-blur"
             style={{ borderColor: `${di.accent}0.6)`, boxShadow: `0 0 26px ${di.accent}0.22) inset` }}
           >
             <span className="font-mono2 text-sm text-cyan-400/80">{">"}</span>
-            <input
-              ref={inputRef}
-              // Uncontrolled on purpose -- see `updateInput` above. The
-              // displayed value is written straight into the DOM so a
-              // keystroke no longer triggers a full-screen React render.
-              // Desktop typing still flows through onChange below, which
-              // sanitizes the text and syncs `inputValRef`; when
-              // sanitization actually changes the text, updateInput writes
-              // the corrected value back into the DOM too.
-              defaultValue=""
-              inputMode="numeric"
-              autoFocus
-              readOnly={!isDesktop}
-              spellCheck={false}
-              onChange={(e) => {
-                if (paused || resuming) return;
-                const v = e.target.value.replace(/[^0-9]/g, "").slice(0, 9);
-                if (v.length > inputValRef.current.length) sfxType();
-                updateInput(v);
-              }}
-              onKeyDown={onKeyDown}
-              className="w-full bg-transparent font-display text-3xl font-black tracking-widest text-white placeholder-white/20 md:text-4xl"
-              placeholder={problem.kind === "factor" ? "素数を入力" : "答えを入力"}
-            />
+            {isDesktop ? (
+              <input
+                ref={inputRef}
+                // Uncontrolled on purpose -- see `updateInput` above. The
+                // displayed value is written straight into the DOM so a
+                // keystroke never triggers a full-screen React render.
+                // Desktop typing still flows through onChange below, which
+                // sanitizes the text and syncs `inputValRef`; when
+                // sanitization actually changes the text, updateInput writes
+                // the corrected value back into the DOM too.
+                defaultValue=""
+                inputMode="numeric"
+                autoFocus
+                spellCheck={false}
+                autoComplete="off"
+                onChange={(e) => {
+                  if (paused || resuming) return;
+                  const v = e.target.value.replace(/[^0-9]/g, "").slice(0, 9);
+                  if (v.length > inputValRef.current.length) sfxType();
+                  updateInput(v);
+                }}
+                onKeyDown={onKeyDown}
+                className="w-full bg-transparent font-display text-3xl font-black tracking-widest text-white placeholder-white/20 md:text-4xl"
+                placeholder={problem.kind === "factor" ? "素数を入力" : "答えを入力"}
+              />
+            ) : (
+              // Phones get a plain, non-focusable element instead of an
+              // <input>. This is the whole fix for the "keyboard slides down
+              // the moment I start" complaint: there is nothing focusable in
+              // the mobile game screen, so no virtual keyboard can be
+              // requested (or dismissed) on mount, on tap, or at any phase
+              // change, and the OS never scrolls/focus-ring-shifts the layout
+              // to reveal an input. The typed digits are written into this
+              // node's textContent directly (`paintInput`), and the caret plus
+              // placeholder are pure CSS, so typing stays zero-React-render.
+              <div
+                ref={displayRef}
+                className="answer-value pointer-events-none w-full font-display text-3xl font-black text-white"
+                data-placeholder={problem.kind === "factor" ? "素数を入力" : "答えを入力"}
+                aria-hidden="true"
+              />
+            )}
+            {/* Submission is on pointerdown, not click: same reasoning as the
+                keypad. The DOM order (and therefore the tab order on desktop)
+                is unaffected. */}
             <button
-              onClick={submit}
+              type="button"
+              onPointerDown={(e) => {
+                e.preventDefault();
+                submit();
+              }}
               className="clip-chip shrink-0 px-4 py-2 font-display text-sm font-black tracking-[0.2em] text-black"
               style={{ background: di.color, boxShadow: `0 0 20px ${di.color}` }}
             >
@@ -1096,7 +1463,6 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
 
             <div className="mt-5 flex flex-col gap-2">
               <button
-                autoFocus
                 onClick={() => {
                   sfxSelect();
                   startResume();
@@ -1150,7 +1516,8 @@ export default function GameScreen({ difficulty, mode, bgmEnabled, lightweight, 
         </div>
       )}
 
-      {/* RESUME 3-2-1 countdown */}
+      {/* RESUME 3-2-1 countdown -- pointer-events-none, and input is unblocked
+          on the exact frame "GO" appears (see startResume). */}
       {resuming && (
         <div className="pointer-events-none absolute inset-0 z-50 flex items-center justify-center bg-black/25">
           <div className="absolute h-[42vmin] w-[42vmin] rounded-full border border-cyan-300/30 countdown-halo" />

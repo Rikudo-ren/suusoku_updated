@@ -33,19 +33,53 @@ textarea {
   user-select: auto;
 }
 
+/* ---------- app viewport ----------
+   The whole game is exactly one screen; nothing here may ever scroll. Two
+   separate things used to make the bottom keypad shift under the player's
+   finger on phones:
+
+   1. Height was plain `100%` (of the initial containing block), which is the
+      *large* viewport on mobile -- i.e. the height the page would have if the
+      browser's address bar were hidden. On Chrome/Android that meant the
+      bottom rows of the keypad were laid out underneath the URL bar (and the
+      bottom of the screen when the toolbar is showing), so the last row --
+      exactly where DEL / ENTER live -- was partly unreachable and taps on it
+      got swallowed by the browser chrome. `100dvh` tracks the *visible*
+      viewport instead.
+   2. `html/body` were scrollable-ish containers (body had overflow:hidden,
+      but html didn't), so a stray rubber-band scroll or the focus handling of
+      an autofocused element could offset the whole document by a few px.
+      Pinning the root to the viewport with `position: fixed` removes that
+      possibility entirely.
+
+   `100%` first as a fallback for browsers without dvh support. */
 html,
-body,
-#root {
+body {
   height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  overscroll-behavior: none;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 body {
-  margin: 0;
   background: #03060d;
   color: #d8f6ff;
   font-family: "Rajdhani", "Noto Sans JP", sans-serif;
+  /* Kills the browser's own double-tap-zoom / pinch gesture recognition for
+     the whole app (a game, not a document) -- these gestures are what make a
+     fast double tap on a key get eaten as "zoom" instead of two presses. */
+  touch-action: manipulation;
+}
+
+#root {
+  position: fixed;
+  inset: 0;
+  height: 100%;
+  height: 100dvh;
   overflow: hidden;
-  overscroll-behavior: none;
 }
 
 /* ---------- backgrounds ---------- */
@@ -273,6 +307,26 @@ body {
     transform: translate3d(var(--drift, 0px), -115vh, 0) rotate(-6deg) scale(1.25);
     opacity: 0;
     filter: blur(4px);
+  }
+}
+
+@media (max-width: 767px) {
+  /* Same animation, no per-frame `filter: blur()` on phones (see above). */
+  @keyframes glyph-rise {
+    0% {
+      transform: translate3d(0, 0, 0) rotate(0deg) scale(0.85);
+      opacity: 0;
+    }
+    6% { opacity: var(--op, 0.6); }
+    50% {
+      transform: translate3d(calc(var(--drift, 0px) * 0.3), -50vh, 0) rotate(8deg) scale(1);
+      opacity: var(--op, 0.6);
+    }
+    92% { opacity: var(--op, 0.5); }
+    100% {
+      transform: translate3d(var(--drift, 0px), -115vh, 0) rotate(-6deg) scale(1.25);
+      opacity: 0;
+    }
   }
 }
 .glyph-rise-mag {
@@ -607,6 +661,100 @@ body {
 
 input[type="text"] {
   outline: none;
+}
+
+/* ---------- mobile keypad ----------
+   Key heights are tied to the viewport height (clamp) instead of a fixed
+   `py-3`, so the whole keypad always fits on screen no matter how short the
+   visible area is (small phones, browser toolbars, landscape). Previously the
+   pad had a fixed height while the HUD/problem area above it had their own
+   fixed heights, so on a short screen the column overflowed and the last row
+   -- the DEL / ENTER row -- was pushed off the bottom of the screen, i.e.
+   literally untappable while still looking "almost fine".
+
+   `touch-action: none` on each key: the pad is a game controller, not content.
+   It stops the browser from ever re-interpreting a press as a pan/zoom, which
+   is one of the ways a fast tap sequence loses a press (the browser claims the
+   gesture and turns the pending pointerdown into a pointercancel). */
+.pad-key {
+  height: clamp(38px, 6.2dvh, 58px);
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Landscape phones / very short windows: the same clamp, with a smaller floor.
+   The point is that the pad always fits *and* stays comfortably tappable --
+   never that it gets clipped by the bottom of the screen, which is where the
+   DEL / ENTER row sits. */
+@media (max-height: 620px) {
+  .pad-key {
+    height: clamp(30px, 5.4dvh, 46px);
+  }
+}
+
+.pad-face {
+  transition: background-color 60ms linear, border-color 60ms linear;
+}
+
+/* Press feedback is driven imperatively (a short-lived `.pad-hit` class added
+   by the keypad's own pointer handler) rather than relying on `:active`,
+   because the handler calls preventDefault() to stop the browser from moving
+   focus/starting a gesture -- which also stops `:active` from being applied
+   reliably on some mobile browsers. Feedback must never depend on anything
+   that can be suppressed. */
+.pad-key:active .pad-face,
+.pad-key.pad-hit .pad-face {
+  background: rgba(34, 228, 255, 0.34);
+  border-color: rgba(34, 228, 255, 0.85);
+}
+.pad-key:active .pad-face-dim,
+.pad-key.pad-hit .pad-face-dim {
+  background: rgba(255, 255, 255, 0.24);
+  border-color: rgba(255, 255, 255, 0.6);
+}
+.pad-key:active .pad-face-accent,
+.pad-key.pad-hit .pad-face-accent {
+  filter: brightness(1.15);
+}
+
+/* ---------- mobile answer display ----------
+   On phones the answer is not an <input> at all (see GameScreen) -- it's a
+   plain element whose text is written straight to the DOM. No focusable
+   element means no virtual keyboard can ever slide up/down, no OS scroll-to-
+   focus, and nothing can steal focus mid-tap. The placeholder and the blinking
+   caret are pure CSS so nothing has to re-render per keystroke. */
+.answer-value {
+  min-height: 1.4em;
+  line-height: 1.3;
+  word-break: break-all;
+  letter-spacing: 0.1em;
+}
+.answer-value:empty::before {
+  content: attr(data-placeholder);
+  letter-spacing: normal;
+  color: rgba(255, 255, 255, 0.22);
+}
+.answer-value::after {
+  content: "";
+  display: inline-block;
+  width: 2px;
+  height: 0.92em;
+  margin-left: 3px;
+  vertical-align: -0.04em;
+  background: #67e8f9;
+  animation: caret-blink 1.05s steps(1) infinite;
+}
+
+/* ENTER pressed with nothing typed: a small shake instead of silently doing
+   nothing (a no-op press is what "ENTER doesn't respond" feels like). */
+.answer-bar-nudge {
+  animation: answer-nudge 0.26s ease-in-out;
+}
+@keyframes answer-nudge {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-5px); }
+  55% { transform: translateX(4px); }
+  80% { transform: translateX(-2px); }
 }
 
 ::selection {

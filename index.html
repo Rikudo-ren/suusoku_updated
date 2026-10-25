@@ -4,8 +4,20 @@
     <meta charset="UTF-8" />
     <!-- viewport-fit=cover so env(safe-area-inset-*) is available for
          keeping the game UI (esp. the bottom number pad) out of the home
-         indicator / notch zones on edge-to-edge phones. -->
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+         indicator / notch zones on edge-to-edge phones.
+
+         maximum-scale=1 / user-scalable=no: this is a full-screen game whose
+         entire layout is sized to exactly one viewport. An accidental
+         pinch-zoom (very easy while mashing a keypad with two thumbs) or a
+         double-tap-zoom permanently offsets the layout, so the on-screen keys
+         no longer sit where the player expects and taps land on the wrong
+         thing -- indistinguishable from "input is broken". Chrome/Android
+         honours this; iOS ignores it, which is why `touch-action` is also
+         pinned in index.css and on the keypad itself. -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
 
     <!-- Google tag (gtag.js) -->
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-0JL2K4235R"></script>
